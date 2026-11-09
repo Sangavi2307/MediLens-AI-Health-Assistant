@@ -3,282 +3,219 @@ import streamlit as st
 from supabase import create_client
 
 
-# ==========================================
+# ----------------------------------
 # SUPABASE CONNECTION
-# ==========================================
+# ----------------------------------
 
 def get_supabase_client():
+    try:
+        supabase_url = st.secrets["SUPABASE_URL"]
+        supabase_key = st.secrets["SUPABASE_KEY"]
 
-    if "supabase_client" not in st.session_state:
-
-        try:
-            supabase_url = st.secrets["SUPABASE_URL"]
-            supabase_key = st.secrets["SUPABASE_KEY"]
-
-            st.session_state.supabase_client = create_client(
-                supabase_url,
-                supabase_key
-            )
-
-        except Exception as error:
-
-            st.error("Supabase connection failed.")
-
-            st.caption(
-                f"Error: {type(error).__name__}: {error}"
-            )
-
+        if not supabase_url or not supabase_key:
+            st.error("Supabase URL or key is missing.")
             return None
 
-    return st.session_state.supabase_client
+        return create_client(supabase_url, supabase_key)
+
+    except Exception as e:
+        st.error(f"Supabase connection error: {e}")
+        return None
 
 
-# ==========================================
-# AUTHENTICATION SESSION
-# ==========================================
+# ----------------------------------
+# INITIALIZE SESSION
+# ----------------------------------
 
 def initialize_auth_session():
 
     defaults = {
         "auth_user_id": None,
         "auth_user_email": None,
-        "supabase_client": None
+        "supabase_client": None,
+        "is_authenticated": False
     }
 
     for key, value in defaults.items():
-
         if key not in st.session_state:
             st.session_state[key] = value
 
 
-# ==========================================
-# LOGOUT
-# ==========================================
-
-def logout_user(client):
-
-    try:
-        client.auth.sign_out()
-
-    except Exception:
-        pass
-
-    st.session_state.auth_user_id = None
-    st.session_state.auth_user_email = None
-
-    st.session_state.pop("extracted_report", None)
-    st.session_state.pop("analysis_results", None)
-    st.session_state.pop("ai_explanation", None)
-
-    st.rerun()
-
-
-# ==========================================
-# LOGIN
-# ==========================================
+# ----------------------------------
+# LOGIN FUNCTION
+# ----------------------------------
 
 def render_login(client):
 
-    st.subheader("Login to MediLens")
+    st.subheader("Welcome Back")
+    st.write("Login to your MediLens AI account.")
 
-    with st.form("medilens_login_form"):
+    with st.form("login_form"):
 
         email = st.text_input(
-            "Email address",
-            placeholder="Enter your email"
+            "Email Address",
+            key="login_email"
         )
 
         password = st.text_input(
             "Password",
             type="password",
-            placeholder="Enter your password"
+            key="login_password"
         )
 
-        login_button = st.form_submit_button(
+        submitted = st.form_submit_button(
             "Login",
             use_container_width=True
         )
 
-    if login_button:
+    if submitted:
 
         email = email.strip().lower()
 
         if not email or not password:
+            st.warning("Please enter your email and password.")
+            return
 
-            st.warning(
-                "Please enter your email and password."
-            )
+        try:
+            response = client.auth.sign_in_with_password({
+                "email": email,
+                "password": password
+            })
 
-        else:
+            user = response.user
+            session = response.session
 
-            try:
+            if user and session:
 
-                response = client.auth.sign_in_with_password({
-                    "email": email,
-                    "password": password
-                })
+                st.session_state["auth_user_id"] = user.id
+                st.session_state["auth_user_email"] = user.email
+                st.session_state["supabase_client"] = client
+                st.session_state["is_authenticated"] = True
 
-                if response.user:
+                st.success("Login successful!")
+                st.rerun()
 
-                    st.session_state.auth_user_id = (
-                        response.user.id
-                    )
-
-                    st.session_state.auth_user_email = (
-                        response.user.email
-                    )
-
-                    st.success("Login successful!")
-
-                    st.rerun()
-
-                else:
-
-                    st.error(
-                        "Login failed. Please check your account."
-                    )
-
-            except Exception as error:
-
-                st.error("Unable to log in.")
-
-                st.caption(
-                    f"Error type: {type(error).__name__}"
+            else:
+                st.error(
+                    "Login unsuccessful. Please try again."
                 )
 
-                st.caption(
-                    f"Details: {error}"
-                )
+        except Exception as e:
+
+            error_message = str(e)
+            st.error(f"Login failed: {error_message}")
 
 
-# ==========================================
-# REGISTRATION
-# ==========================================
+# ----------------------------------
+# REGISTRATION FUNCTION
+# ----------------------------------
 
 def render_registration(client):
 
-    st.subheader("Create a MediLens Account")
+    st.subheader("Create Your MediLens Account")
 
-    with st.form("medilens_registration_form"):
+    with st.form("registration_form"):
 
         email = st.text_input(
-            "Email address",
-            placeholder="Enter your email",
+            "Email Address",
             key="new_user_email"
         )
 
         password = st.text_input(
-            "Create password",
+            "Create Password",
             type="password",
             key="new_user_password"
         )
 
         confirm_password = st.text_input(
-            "Confirm password",
+            "Confirm Password",
             type="password",
             key="new_user_confirm_password"
         )
 
-        register_button = st.form_submit_button(
+        submitted = st.form_submit_button(
             "Create Account",
             use_container_width=True
         )
 
-    if register_button:
+    if submitted:
 
         email = email.strip().lower()
 
         if not email or not password or not confirm_password:
+            st.warning("Please fill in all fields.")
+            return
 
-            st.warning(
-                "Please complete all registration fields."
-            )
+        if password != confirm_password:
+            st.error("Passwords do not match.")
+            return
 
-        elif "@" not in email:
+        if len(password) < 6:
+            st.error("Password must contain at least 6 characters.")
+            return
 
-            st.warning(
-                "Please enter a valid email address."
-            )
+        try:
+            response = client.auth.sign_up({
+                "email": email,
+                "password": password
+            })
 
-        elif len(password) < 8:
+            if response.user:
 
-            st.warning(
-                "Password must contain at least 8 characters."
-            )
+                if response.session:
+                    st.session_state["auth_user_id"] = response.user.id
+                    st.session_state["auth_user_email"] = response.user.email
+                    st.session_state["supabase_client"] = client
+                    st.session_state["is_authenticated"] = True
 
-        elif password != confirm_password:
-
-            st.warning(
-                "Passwords do not match."
-            )
-
-        else:
-
-            try:
-
-                response = client.auth.sign_up({
-                    "email": email,
-                    "password": password
-                })
-
-                if response.user is None:
-
-                    st.error(
-                        "Registration could not be completed."
-                    )
-
-                elif (
-                    response.user.identities is not None
-                    and len(response.user.identities) == 0
-                ):
-
-                    st.warning(
-                        "An account may already exist with this "
-                        "email address. Please try logging in."
-                    )
-
-                elif response.session and response.user:
-
-                    st.session_state.auth_user_id = (
-                        response.user.id
-                    )
-
-                    st.session_state.auth_user_email = (
-                        response.user.email
-                    )
-
-                    st.success(
-                        "Your MediLens account was created successfully!"
-                    )
-
+                    st.success("Account created successfully!")
                     st.rerun()
 
                 else:
-
                     st.success(
-                        "Registration successful! "
-                        "Please check your email and confirm "
-                        "your account before logging in."
+                        "Account created! Please check your email "
+                        "and confirm your account before logging in."
                     )
 
-            except Exception as error:
+            else:
+                st.error("Account creation was unsuccessful.")
 
-                st.error(
-                    "Registration failed."
-                )
+        except Exception as e:
 
-                st.caption(
-                    f"Error type: {type(error).__name__}"
-                )
-
-                st.caption(
-                    f"Details: {error}"
-                )
+            st.error(f"Registration failed: {str(e)}")
 
 
-# ==========================================
+# ----------------------------------
+# LOGOUT FUNCTION
+# ----------------------------------
+
+def logout_user(client):
+
+    try:
+        if client:
+            client.auth.sign_out()
+
+    except Exception:
+        pass
+
+    st.session_state["auth_user_id"] = None
+    st.session_state["auth_user_email"] = None
+    st.session_state["supabase_client"] = None
+    st.session_state["is_authenticated"] = False
+
+    for key in [
+        "extracted_report",
+        "analysis_results",
+        "ai_explanation"
+    ]:
+        st.session_state.pop(key, None)
+
+    st.rerun()
+
+
+# ----------------------------------
 # MAIN AUTHENTICATION PAGE
-# ==========================================
+# ----------------------------------
 
 def render_authentication():
 
@@ -287,39 +224,25 @@ def render_authentication():
     client = get_supabase_client()
 
     if client is None:
+        st.error("Unable to connect to Supabase.")
         return False
 
-    # Already logged-in user
-    if st.session_state.auth_user_id:
-
-        st.success(
-            f"Logged in as: "
-            f"{st.session_state.auth_user_email}"
-        )
-
-        if st.button(
-            "Logout",
-            use_container_width=True
-        ):
-
-            logout_user(client)
-
+    if st.session_state["is_authenticated"]:
         return True
 
-    # Login and registration tabs
-    st.title("MediLens Account")
+    st.title("MediLens AI")
+    st.write("Your AI Medical Report Explainer")
 
-    login_tab, register_tab = st.tabs(
-        ["Login", "Create Account"]
-    )
+    login_tab, signup_tab = st.tabs([
+        "Login",
+        "Create Account"
+    ])
 
     with login_tab:
-
         render_login(client)
 
-    with register_tab:
-
+    with signup_tab:
         render_registration(client)
 
-    return False
-                    
+    return st.session_state["is_authenticated"]
+            
