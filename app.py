@@ -1,563 +1,430 @@
 
 import streamlit as st
 import pandas as pd
-import re
-import io
-from datetime import datetime
+
+from modules.authentication import (
+    get_supabase_client,
+    render_authentication
+)
+
+from modules.health_profile import render_health_profile
+from modules.screening import render_screening
+
+from modules.extractor import (
+    extract_report_text
+)
+
+from modules.analyzer import (
+    analyze_report,
+    get_analysis_summary
+)
+
+
+# --------------------------------------------------
+# PAGE CONFIGURATION
+# --------------------------------------------------
 
 st.set_page_config(
-    page_title="MediLens | AI Health Assistant",
-    page_icon="🩺",
+    page_title="MediLens - AI Health Assistant",
+    page_icon="🏥",
     layout="wide"
 )
 
-# ---------------- SESSION STATE ----------------
 
-if "profile" not in st.session_state:
-    st.session_state.profile = {}
+# --------------------------------------------------
+# APPLICATION HEADER
+# --------------------------------------------------
 
-if "reports" not in st.session_state:
-    st.session_state.reports = []
+st.title("🏥 MediLens")
+st.subheader("AI-Powered Personal Health Guidance Platform")
 
-if "current_results" not in st.session_state:
-    st.session_state.current_results = pd.DataFrame()
-
-# ---------------- DESIGN ----------------
-
-st.markdown("""
-<style>
-.stApp {
-    background-color: #F5F8FC;
-}
-.main-title {
-    font-size: 38px;
-    font-weight: 800;
-    color: #123B63;
-}
-.subtitle {
-    color: #64748B;
-    font-size: 16px;
-}
-div[data-testid="stMetric"] {
-    background: white;
-    padding: 16px;
-    border-radius: 12px;
-    border: 1px solid #E2E8F0;
-}
-</style>
-""", unsafe_allow_html=True)
-
-st.markdown('<div class="main-title">🩺 MediLens</div>',
-            unsafe_allow_html=True)
-st.markdown(
-    '<div class="subtitle">AI-Powered Personal Health Guidance Platform</div>',
-    unsafe_allow_html=True
+st.write(
+    "Understand your health reports and explore "
+    "personalized educational health guidance."
 )
 
 st.divider()
 
-# ---------------- SIDEBAR ----------------
+
+# --------------------------------------------------
+# USER AUTHENTICATION
+# --------------------------------------------------
+
+authenticated = render_authentication()
+
+if not authenticated:
+    st.info("Please log in or create an account to continue.")
+    st.stop()
+
+
+client = get_supabase_client()
+
+if client is None:
+    st.error("Unable to connect to the database.")
+    st.stop()
+
+
+user_id = st.session_state.get("auth_user_id")
+
+if not user_id:
+    st.warning("Please log in again.")
+    st.stop()
+
+
+# --------------------------------------------------
+# SIDEBAR NAVIGATION
+# --------------------------------------------------
+
+st.sidebar.title("MediLens Navigation")
 
 menu = st.sidebar.radio(
-    "Navigation",
+    "Select a Module",
     [
         "Dashboard",
         "Personal Health Profile",
-        "Age-Based Screening",
+        "Age-Based Health Screening",
         "Medical Report Upload",
-        "Medical Test Analysis",
-        "AI Report Explanation",
-        "Health Risk Monitoring",
-        "Multi-Report Tracking",
-        "Next-Test Recommendations"
+        "Medical Test Analysis"
     ]
 )
 
-st.sidebar.info(
+st.sidebar.divider()
+
+st.sidebar.caption(
     "MediLens provides educational health information. "
-    "It does not diagnose diseases or replace medical professionals."
+    "It does not replace professional medical advice."
 )
 
-# ---------------- PROFILE ----------------
 
-if menu == "Personal Health Profile":
+# --------------------------------------------------
+# DASHBOARD
+# --------------------------------------------------
 
-    st.header("Personal Health Profile")
+if menu == "Dashboard":
 
-    with st.form("profile_form"):
-        name = st.text_input("Full Name")
-        age = st.number_input("Age", min_value=1, max_value=120, value=25)
-        gender = st.selectbox(
-            "Gender",
-            ["Prefer not to say", "Female", "Male", "Other"]
-        )
-        history = st.text_area("Previous Medical History")
-        conditions = st.text_area("Existing Health Conditions")
-        symptoms = st.text_area("Current Symptoms")
+    st.title("Welcome to MediLens!")
 
-        submitted = st.form_submit_button("Save Profile")
-
-        if submitted:
-            st.session_state.profile = {
-                "Name": name,
-                "Age": age,
-                "Gender": gender,
-                "Medical History": history,
-                "Existing Conditions": conditions,
-                "Symptoms": symptoms
-            }
-            st.success("Profile saved for this session.")
-
-    if st.session_state.profile:
-        st.subheader("Your Profile")
-        st.json(st.session_state.profile)
-
-# ---------------- AGE SCREENING ----------------
-
-elif menu == "Age-Based Screening":
-
-    st.header("Age-Based Health Screening")
-
-    profile = st.session_state.profile
-    age = profile.get("Age")
-
-    if age is None:
-        st.warning("Please complete your Personal Health Profile first.")
-    else:
-        st.write(f"Screening information for age: **{age} years**")
-
-        if age < 30:
-            st.info(
-                "Discuss routine preventive care and screening based "
-                "on personal and family medical history."
-            )
-        elif age < 40:
-            st.info(
-                "Discuss blood pressure and diabetes screening, "
-                "and other preventive checks based on risk factors."
-            )
-        elif age < 50:
-            st.info(
-                "Review blood pressure, diabetes and age-appropriate "
-                "cancer screening eligibility with a healthcare professional."
-            )
-        else:
-            st.info(
-                "Review age-appropriate cancer screening, blood pressure, "
-                "diabetes and other preventive health checks with a "
-                "healthcare professional."
-            )
-
-        if profile.get("Gender") == "Female" and age >= 30:
-            st.write(
-                "Women's health: ask about eligibility for cervical "
-                "and breast cancer screening."
-            )
-
-        st.warning(
-            "These are general educational prompts, not a personal "
-            "test prescription. Screening depends on local guidelines, "
-            "medical history and individual risk."
-        )
-
-# ---------------- REPORT EXTRACTION ----------------
-
-def extract_report(uploaded_file):
-    file_bytes = uploaded_file.getvalue()
-    filename = uploaded_file.name.lower()
-
-    if filename.endswith(".pdf"):
-        try:
-            import pymupdf
-
-            document = pymupdf.open(
-                stream=file_bytes,
-                filetype="pdf"
-            )
-
-            text = ""
-            for page in document:
-                page_text = page.get_text()
-                text += page_text + "\n"
-
-                # OCR pages that contain no selectable text
-                if not page_text.strip():
-                    try:
-                        import pytesseract
-                        from PIL import Image
-
-                        pix = page.get_pixmap(matrix=pymupdf.Matrix(2, 2))
-                        image = Image.open(
-                            io.BytesIO(pix.tobytes("png"))
-                        )
-                        text += pytesseract.image_to_string(image) + "\n"
-                    except Exception:
-                        pass
-
-            return text
-
-        except Exception as error:
-            st.error(f"PDF extraction error: {error}")
-            return ""
-
-    elif filename.endswith((".png", ".jpg", ".jpeg")):
-        try:
-            import pytesseract
-            from PIL import Image
-
-            image = Image.open(io.BytesIO(file_bytes))
-            return pytesseract.image_to_string(image)
-
-        except Exception as error:
-            st.error(f"Image OCR error: {error}")
-            return ""
-
-    return ""
-
-# ---------------- TEST ANALYSIS ----------------
-
-def analyze_report(report_text):
-
-    results = []
-
-    # Recognizes lines containing a test value and a numeric range.
-    pattern = re.compile(
-        r"^\s*(.+?)\s+"
-        r"([<>]?\s*\d+(?:\.\d+)?)\s*"
-        r"([A-Za-zµμ/%^0-9._-]*)\s+"
-        r"(\d+(?:\.\d+)?)\s*[-–]\s*"
-        r"(\d+(?:\.\d+)?)\s*$"
+    st.write(
+        "Your personal health guidance dashboard."
     )
 
-    for line in report_text.splitlines():
-        match = pattern.match(line.strip())
+    st.subheader("Available Features")
 
-        if not match:
-            continue
+    col1, col2 = st.columns(2)
 
-        test = match.group(1).strip(" :-")
-        value_text = match.group(2).replace(" ", "")
-        unit = match.group(3).strip()
-        low = float(match.group(4))
-        high = float(match.group(5))
+    with col1:
+        st.info(
+            "**Personal Health Profile**\n\n"
+            "Manage your personal and medical information."
+        )
 
-        if value_text.startswith(("<", ">")):
-            continue
+        st.info(
+            "**Age-Based Health Screening**\n\n"
+            "Explore general preventive health guidance."
+        )
 
-        try:
-            value = float(value_text)
-        except ValueError:
-            continue
+    with col2:
+        st.info(
+            "**Medical Report Upload**\n\n"
+            "Upload PDF or image-based medical reports."
+        )
 
-        if low > high:
-            continue
+        st.info(
+            "**Medical Test Analysis**\n\n"
+            "Review extracted medical test values and "
+            "their configured reference ranges."
+        )
 
-        if value < low:
-            status = "Below Normal"
-        elif value > high:
-            status = "Above Normal"
-        else:
-            status = "Within Normal Range"
+    st.subheader("How MediLens Works")
 
-        results.append({
-            "Test": test,
-            "Result": value,
-            "Unit": unit,
-            "Reference Range": f"{low} - {high}",
-            "Status": status
-        })
+    st.write(
+        """
+        1. Create your account and log in.
+        2. Complete your personal health profile.
+        3. Explore age-based screening information.
+        4. Upload a medical report.
+        5. Extract report text using OCR.
+        6. Analyze supported medical test values.
+        7. Review the educational analysis.
+        """
+    )
 
-    return pd.DataFrame(results)
 
-# ---------------- REPORT UPLOAD ----------------
+# --------------------------------------------------
+# PERSONAL HEALTH PROFILE
+# --------------------------------------------------
+
+elif menu == "Personal Health Profile":
+
+    render_health_profile(
+        client,
+        user_id
+    )
+
+
+# --------------------------------------------------
+# AGE-BASED HEALTH SCREENING
+# --------------------------------------------------
+
+elif menu == "Age-Based Health Screening":
+
+    render_screening(
+        client,
+        user_id
+    )
+
+
+# --------------------------------------------------
+# MEDICAL REPORT UPLOAD
+# --------------------------------------------------
 
 elif menu == "Medical Report Upload":
 
-    st.header("Medical Report Upload")
+    st.title("Medical Report Upload")
 
-    uploaded_file = st.file_uploader(
-        "Upload your medical report",
-        type=["pdf", "png", "jpg", "jpeg"]
+    st.write(
+        "Upload your medical report in PDF, JPG or PNG format."
     )
 
-    if uploaded_file:
-        if uploaded_file.size > 20 * 1024 * 1024:
-            st.error("Maximum upload size is 20 MB.")
+    uploaded_file = st.file_uploader(
+        "Choose your medical report",
+        type=["pdf", "png", "jpg", "jpeg"],
+        help="Maximum supported file size: 20 MB."
+    )
+
+    if uploaded_file is not None:
+
+        file_size = len(uploaded_file.getvalue())
+
+        if file_size > 20 * 1024 * 1024:
+
+            st.error(
+                "File size exceeds 20 MB. "
+                "Please upload a smaller report."
+            )
+
         else:
-            if st.button("Extract Medical Information"):
-                with st.spinner("Extracting report information..."):
-                    extracted_text = extract_report(uploaded_file)
 
-                st.session_state.extracted_text = extracted_text
-                st.session_state.upload_name = uploaded_file.name
+            st.success(
+                f"Uploaded successfully: {uploaded_file.name}"
+            )
 
-                if extracted_text.strip():
-                    st.success("Report text extracted successfully.")
-                    st.text_area(
-                        "Extracted Report Text",
-                        extracted_text,
-                        height=300
+            st.write(
+                f"File size: {file_size / (1024 * 1024):.2f} MB"
+            )
+
+            if st.button(
+                "Extract Medical Report Text",
+                use_container_width=True
+            ):
+
+                with st.spinner(
+                    "Extracting text from your report..."
+                ):
+
+                    extracted_text = extract_report_text(
+                        uploaded_file
                     )
+
+                if extracted_text:
+
+                    st.session_state.extracted_report = (
+                        extracted_text
+                    )
+
+                    st.session_state.report_filename = (
+                        uploaded_file.name
+                    )
+
+                    st.success("Text extraction completed!")
+
                 else:
+
                     st.warning(
-                        "No text was extracted. The report may be "
-                        "unclear, scanned or unsupported."
+                        "No readable text was found. "
+                        "Please upload a clearer report."
                     )
 
-# ---------------- MEDICAL TEST ANALYSIS ----------------
+    if st.session_state.get("extracted_report"):
+
+        st.subheader("Extracted Medical Report")
+
+        with st.expander(
+            "View extracted report text",
+            expanded=True
+        ):
+
+            st.text_area(
+                "Extracted Text",
+                value=st.session_state.extracted_report,
+                height=300,
+                disabled=True
+            )
+
+        st.info(
+            "You can now open Medical Test Analysis "
+            "from the sidebar."
+        )
+
+
+# --------------------------------------------------
+# MEDICAL TEST ANALYSIS
+# --------------------------------------------------
 
 elif menu == "Medical Test Analysis":
 
-    st.header("Medical Test Analysis")
-
-    report_text = st.session_state.get("extracted_text", "")
-
-    if not report_text:
-        st.info("Upload a medical report and extract its text first.")
-    else:
-        if st.button("Analyse Test Results"):
-            results = analyze_report(report_text)
-            st.session_state.current_results = results
-
-            if not results.empty:
-                st.session_state.reports.append({
-                    "Date": datetime.now().strftime("%Y-%m-%d %H:%M"),
-                    "Results": results.copy()
-                })
-                st.success("Analysis completed.")
-            else:
-                st.warning(
-                    "No test rows with numeric reference ranges were "
-                    "recognized. Please check the extracted report text."
-                )
-
-        results = st.session_state.current_results
-
-        if not results.empty:
-            st.dataframe(results, use_container_width=True)
-
-# ---------------- AI EXPLANATION ----------------
-
-elif menu == "AI Report Explanation":
-
-    st.header("Medical Report Explanation")
-
-    results = st.session_state.current_results
-
-    if results.empty:
-        st.info("Analyse a medical report first.")
-    else:
-        for _, row in results.iterrows():
-            st.subheader(row["Test"])
-            st.write(f"Result: **{row['Result']} {row['Unit']}**")
-            st.write(f"Reference range: {row['Reference Range']}")
-            st.write(f"Status: **{row['Status']}**")
-
-            if row["Status"] == "Within Normal Range":
-                st.success(
-                    "This value is within the reference range shown "
-                    "in the report."
-                )
-            else:
-                st.warning(
-                    "This value is outside the reference range. "
-                    "There can be several possible explanations. "
-                    "Discuss it with a healthcare professional."
-                )
-
-# ---------------- HEALTH RISK MONITORING ----------------
-
-elif menu == "Health Risk Monitoring":
-
-    st.header("Health Risk Monitoring")
-
-    results = st.session_state.current_results
-
-    if results.empty:
-        st.info("Analyse a report first.")
-    else:
-        abnormal = results[
-            results["Status"] != "Within Normal Range"
-        ]
-
-        if abnormal.empty:
-            st.success(
-                "No values outside the supplied reference ranges "
-                "were detected in the analysed results."
-            )
-        else:
-            st.warning("The following results are outside their ranges:")
-            st.dataframe(abnormal, use_container_width=True)
-
-        st.caption(
-            "An out-of-range result is not automatically an emergency. "
-            "Urgency depends on the actual value, symptoms and clinical context."
-        )
-
-# ---------------- MULTI-REPORT TRACKING ----------------
-
-elif menu == "Multi-Report Tracking":
-
-    st.header("Multi-Report Health Tracking")
-
-    reports = st.session_state.reports
-
-    if not reports:
-        st.info("Analyse and save reports to view your history.")
-    else:
-        history_rows = []
-
-        for report in reports:
-            for _, row in report["Results"].iterrows():
-                history_rows.append({
-                    "Date": report["Date"],
-                    "Test": row["Test"],
-                    "Result": row["Result"],
-                    "Unit": row["Unit"]
-                })
-
-        history_df = pd.DataFrame(history_rows)
-
-        st.dataframe(history_df, use_container_width=True)
-
-        selected_test = st.selectbox(
-            "Select a test to view its trend",
-            sorted(history_df["Test"].unique())
-        )
-
-        chart_data = history_df[
-            history_df["Test"] == selected_test
-        ].set_index("Date")[["Result"]]
-
-        st.line_chart(chart_data)
-
-        st.caption(
-            "Only reports analysed during this current session are "
-            "included. Persistent secure storage will be added later."
-        )
-
-# ---------------- NEXT TEST RECOMMENDATIONS ----------------
-
-elif menu == "Next-Test Recommendations":
-
-    st.header("Smart Next-Test Recommendations")
-
-    results = st.session_state.current_results
-
-    if results.empty:
-        st.info("Analyse a medical report first.")
-    else:
-        follow_up_guidance = {
-            "hemoglobin": (
-                "Discuss whether a complete blood count, ferritin, "
-                "iron studies, vitamin B12 or folate evaluation is "
-                "appropriate, depending on the clinical context."
-            ),
-            "glucose": (
-                "Discuss whether repeat glucose testing or HbA1c "
-                "is appropriate, depending on the test type and history."
-            ),
-            "vitamin d": (
-                "Discuss whether follow-up vitamin D testing is "
-                "appropriate based on symptoms and treatment history."
-            ),
-            "tsh": (
-                "Discuss whether free T4 or repeat thyroid testing "
-                "is appropriate based on symptoms and previous results."
-            ),
-            "creatinine": (
-                "Discuss whether eGFR and urine albumin testing "
-                "are appropriate based on medical history."
-            )
-        }
-
-        for _, row in results.iterrows():
-            if row["Status"] == "Within Normal Range":
-                continue
-
-            st.subheader(row["Test"])
-
-            test_name = row["Test"].lower()
-            found = False
-
-            for key, guidance in follow_up_guidance.items():
-                if key in test_name:
-                    st.write(guidance)
-                    found = True
-                    break
-
-            if not found:
-                st.write(
-                    "Discuss this result with a healthcare professional "
-                    "to determine whether any follow-up testing is needed."
-                )
-
-        st.warning(
-            "These are discussion prompts, not automatic test orders. "
-            "Do not repeat or start tests without considering clinical advice."
-        )
-
-# ---------------- DASHBOARD ----------------
-
-elif menu == "Dashboard":
-
-    st.header("Welcome to MediLens")
+    st.title("Medical Test Analysis")
 
     st.write(
-        "Understand your medical reports, monitor your health "
-        "information and explore preventive health guidance."
+        "Review supported test values extracted "
+        "from your uploaded medical report."
     )
 
-    profile = st.session_state.profile
-    results = st.session_state.current_results
-
-    col1, col2, col3 = st.columns(3)
-
-    col1.metric(
-        "Profile",
-        "Completed" if profile else "Not completed"
+    report_text = st.session_state.get(
+        "extracted_report",
+        ""
     )
 
-    col2.metric(
-        "Reports Analysed",
-        len(st.session_state.reports)
-    )
+    if not report_text:
 
-    abnormal_count = (
-        len(results[results["Status"] != "Within Normal Range"])
-        if not results.empty else 0
-    )
+        st.warning(
+            "Please upload a medical report and extract "
+            "its text before starting the analysis."
+        )
 
-    col3.metric("Out-of-range Results", abnormal_count)
+    else:
 
-    st.subheader("Your MediLens Journey")
+        if st.button(
+            "Analyze Medical Report",
+            use_container_width=True
+        ):
 
-    st.markdown("""
-    1. Complete your personal health profile.
-    2. Explore age-based screening information.
-    3. Upload your medical report.
-    4. Extract and analyse medical test results.
-    5. Understand your report explanations.
-    6. Monitor out-of-range results.
-    7. Compare reports over time.
-    8. Explore possible follow-up test information.
-    """)
+            with st.spinner(
+                "Analyzing medical test values..."
+            ):
 
-    st.info(
-        "Start by completing your Personal Health Profile "
-        "from the sidebar."
-    )
+                results = analyze_report(report_text)
 
-# ---------------- FOOTER ----------------
+                st.session_state.analysis_results = results
+
+        results = st.session_state.get(
+            "analysis_results",
+            None
+        )
+
+        if results is not None:
+
+            if results:
+
+                summary = get_analysis_summary(results)
+
+                st.subheader("Analysis Summary")
+
+                col1, col2, col3, col4 = st.columns(4)
+
+                col1.metric(
+                    "Below Range",
+                    summary["Below"]
+                )
+
+                col2.metric(
+                    "Within Range",
+                    summary["Within"]
+                )
+
+                col3.metric(
+                    "Above Range",
+                    summary["Above"]
+                )
+
+                col4.metric(
+                    "Needs Review",
+                    summary["Needs review"]
+                )
+
+                st.divider()
+
+                st.subheader("Medical Test Results")
+
+                dataframe = pd.DataFrame(results)
+
+                st.dataframe(
+                    dataframe,
+                    use_container_width=True,
+                    hide_index=True
+                )
+
+                st.subheader("Result Interpretation")
+
+                for result in results:
+
+                    test_name = result["test_name"]
+                    value = result["value"]
+                    unit = result["unit"]
+                    status = result["status"]
+                    reference = result["reference_range"]
+
+                    with st.expander(test_name):
+
+                        st.write(f"**Result:** {value} {unit}")
+
+                        st.write(
+                            f"**Configured reference range:** "
+                            f"{reference} {unit}"
+                        )
+
+                        st.write(f"**Status:** {status}")
+
+                        if status == "Below":
+
+                            st.warning(
+                                "This value is below the "
+                                "configured reference range."
+                            )
+
+                        elif status == "Above":
+
+                            st.warning(
+                                "This value is above the "
+                                "configured reference range."
+                            )
+
+                        else:
+
+                            st.success(
+                                "This value is within the "
+                                "configured reference range."
+                            )
+
+                st.caption(
+                    "Only supported test names and simple "
+                    "report formats are currently recognized. "
+                    "Unrecognized tests are not included."
+                )
+
+            else:
+
+                st.warning(
+                    "No supported medical test values "
+                    "were detected in the extracted text."
+                )
+
+
+# --------------------------------------------------
+# FOOTER
+# --------------------------------------------------
 
 st.divider()
 
 st.caption(
-    "MediLens | AI-Powered Personal Health Guidance Platform"
+    "MediLens © 2026 | AI-Powered Personal Health "
+    "Guidance Platform"
 )
 
 st.caption(
-    "Educational information only. Not a medical diagnosis or "
-    "substitute for professional medical care."
-)
-
+    "Medical Disclaimer: MediLens is an educational "
+    "prototype. It does not diagnose diseases, prescribe "
+    "medication or replace consultation with qualified "
+    "healthcare professionals. Always discuss test results "
+    "and medical decisions with a healthcare professional."
+    )
