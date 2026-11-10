@@ -7,7 +7,7 @@ from supabase import create_client
 # ==========================================
 
 REDIRECT_URL = (
-    "https://ai-medical-report-explainer-jjtmfywjeeumpeqn5o6oyu.streamlit.app/"
+    "https://medilens-ai-health-assistant-dxmjwcxyg2evxbx62ttbox.streamlit.app/"
 )
 
 # ==========================================
@@ -33,7 +33,6 @@ def initialize_auth_session():
 # ==========================================
 
 def get_supabase_client():
-
     if st.session_state.get("supabase_client") is None:
         try:
             url = st.secrets["SUPABASE_URL"]
@@ -56,7 +55,6 @@ def get_supabase_client():
 # ==========================================
 
 def handle_recovery_link(client):
-
     token_hash = st.query_params.get("token_hash")
     recovery_type = st.query_params.get("type")
 
@@ -74,7 +72,6 @@ def handle_recovery_link(client):
             if response.session:
                 st.session_state["recovery_mode"] = True
                 st.session_state["recovery_verified"] = True
-
                 st.query_params.clear()
                 st.rerun()
 
@@ -93,8 +90,8 @@ def handle_recovery_link(client):
 # ==========================================
 
 def render_update_password(client):
-
     st.title("Create New Password")
+
     st.write("Enter your new MediLens account password.")
 
     with st.form("update_password_form"):
@@ -160,7 +157,6 @@ def render_update_password(client):
 # ==========================================
 
 def render_login(client):
-
     st.subheader("Welcome Back!")
 
     with st.form("medilens_login_form"):
@@ -219,7 +215,6 @@ def render_login(client):
 # ==========================================
 
 def render_registration(client):
-
     st.subheader("Create Your MediLens Account")
 
     with st.form("medilens_register_form"):
@@ -306,7 +301,6 @@ def render_registration(client):
 # ==========================================
 
 def render_forgot_password(client):
-
     st.subheader("Reset Your Password")
 
     st.write(
@@ -356,7 +350,6 @@ def render_forgot_password(client):
 # ==========================================
 
 def logout_user(client):
-
     try:
         client.auth.sign_out()
 
@@ -394,7 +387,6 @@ def render_authentication():
 
     # Show new password form
     if st.session_state["recovery_mode"]:
-
         render_update_password(client)
         return False
 
@@ -430,4 +422,4 @@ def render_authentication():
         render_forgot_password(client)
 
     return False
-    
+        
