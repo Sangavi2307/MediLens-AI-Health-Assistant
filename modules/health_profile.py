@@ -15,12 +15,15 @@ def render_health_profile(client, user_id):
         "Please provide your basic health information."
     )
 
+    if not user_id:
+        st.error("Your guest session is unavailable. Please sign in again.")
+        return
+
     # ======================================
     # LOAD EXISTING PATIENT PROFILE
     # ======================================
 
     try:
-
         response = (
             client.table("health_profiles")
             .select("*")
@@ -32,10 +35,14 @@ def render_health_profile(client, user_id):
         existing = response.data[0] if response.data else {}
 
     except Exception as error:
-
         st.error("Unable to load your health profile.")
         st.caption(f"{type(error).__name__}: {error}")
         return
+
+    if existing:
+        st.success("Your saved health profile has been loaded.")
+    else:
+        st.info("No saved health profile found. Please enter your details.")
 
     # ======================================
     # PROFILE FORM
@@ -47,7 +54,7 @@ def render_health_profile(client, user_id):
 
         full_name = st.text_input(
             "Full Name",
-            value=existing.get("full_name", "")
+            value=existing.get("full_name") or ""
         )
 
         age = st.number_input(
@@ -118,10 +125,7 @@ def render_health_profile(client, user_id):
 
         st.subheader("Language Preference")
 
-        language_options = [
-            "English",
-            "Tamil"
-        ]
+        language_options = ["English", "Tamil"]
 
         saved_language = existing.get(
             "preferred_language",
@@ -143,13 +147,12 @@ def render_health_profile(client, user_id):
         )
 
     # ======================================
-    # SAVE PROFILE TO SUPABASE
+    # SAVE OR UPDATE PROFILE
     # ======================================
 
     if submitted:
 
         if not full_name.strip():
-
             st.warning("Please enter your full name.")
             return
 
@@ -158,9 +161,7 @@ def render_health_profile(client, user_id):
             "full_name": full_name.strip(),
             "age": age,
             "gender": gender,
-            "weight_kg": (
-                weight_kg if weight_kg > 0 else None
-            ),
+            "weight_kg": weight_kg if weight_kg > 0 else None,
             "medical_history": medical_history.strip(),
             "existing_conditions": existing_conditions.strip(),
             "current_medications": current_medications.strip(),
@@ -175,22 +176,17 @@ def render_health_profile(client, user_id):
 
             if existing:
 
-                (
-                    client.table("health_profiles")
-                    .update(profile_data)
-                    .eq("user_id", user_id)
-                    .execute()
-                )
+                client.table("health_profiles").update(
+                    profile_data
+                ).eq(
+                    "user_id", user_id
+                ).execute()
 
             else:
 
-                (
-                    client.table("health_profiles")
-                    .insert(profile_data)
-                    .execute()
-                )
-
-            # SUCCESS NOTIFICATION
+                client.table("health_profiles").insert(
+                    profile_data
+                ).execute()
 
             st.success(
                 "Health Profile Saved Successfully!"
@@ -203,11 +199,9 @@ def render_health_profile(client, user_id):
 
         except Exception as error:
 
-            st.error(
-                "Unable to save your health profile."
-            )
+            st.error("Unable to save your health profile.")
 
             st.caption(
                 f"{type(error).__name__}: {error}"
-        )
+            )
             
