@@ -1,111 +1,131 @@
-import streamlit as st
 
+import streamlit as st
+from datetime import datetime, timezone
+
+
+# ==========================================
+# PATIENT HEALTH PROFILE
+# ==========================================
 
 def render_health_profile(client, user_id):
-    """
-    Display and manage the personal health profile
-    for the currently authenticated user.
-    """
 
-    st.title("Personal Health Profile")
+    st.title("Patient Health Profile")
 
     st.write(
-        "Enter your personal health information "
-        "to receive relevant educational health guidance."
+        "Please provide your basic health information."
     )
 
-    if not user_id:
-        st.warning("Please log in to access your health profile.")
-        return
-
-    # Load the user's existing health profile
+    # Get existing patient profile
     try:
+
         response = (
             client.table("health_profiles")
             .select("*")
-            .eq("id", user_id)
+            .eq("user_id", user_id)
+            .limit(1)
             .execute()
         )
 
-        profile = response.data[0] if response.data else {}
+        existing = response.data[0] if response.data else {}
 
     except Exception as error:
+
         st.error("Unable to load your health profile.")
-        st.caption(f"Database error: {error}")
+        st.caption(str(error))
         return
 
-    # Available gender options
-    gender_options = [
-        "Prefer not to say",
-        "Female",
-        "Male",
-        "Other"
-    ]
+    # ======================================
+    # PROFILE FORM
+    # ======================================
 
-    saved_gender = profile.get(
-        "gender",
-        "Prefer not to say"
-    )
-
-    if saved_gender not in gender_options:
-        saved_gender = "Prefer not to say"
-
-    # Health profile form
-    with st.form("health_profile_form"):
+    with st.form("patient_health_profile"):
 
         st.subheader("Personal Information")
 
         full_name = st.text_input(
             "Full Name",
-            value=profile.get("full_name", ""),
-            placeholder="Enter your full name"
+            value=existing.get("full_name", "")
         )
 
         age = st.number_input(
             "Age",
             min_value=1,
             max_value=120,
-            value=int(profile.get("age") or 18),
-            step=1
+            value=int(existing.get("age") or 18)
         )
+
+        gender_options = [
+            "Male",
+            "Female",
+            "Other",
+            "Prefer not to say"
+        ]
+
+        saved_gender = existing.get("gender", "Prefer not to say")
 
         gender = st.selectbox(
             "Gender",
             gender_options,
-            index=gender_options.index(saved_gender)
+            index=(
+                gender_options.index(saved_gender)
+                if saved_gender in gender_options else 3
+            )
+        )
+
+        weight_kg = st.number_input(
+            "Weight (kg)",
+            min_value=0.0,
+            max_value=500.0,
+            value=float(existing.get("weight_kg") or 0.0),
+            step=0.5
         )
 
         st.divider()
 
-        st.subheader("Medical Information")
+        st.subheader("Health Information")
 
         medical_history = st.text_area(
             "Medical History",
-            value=profile.get("medical_history", ""),
-            placeholder=(
-                "Enter relevant past medical history"
-            )
+            value=existing.get("medical_history") or "",
+            placeholder="Enter relevant medical history"
         )
 
         existing_conditions = st.text_area(
             "Existing Health Conditions",
-            value=profile.get("existing_conditions", ""),
-            placeholder=(
-                "Enter existing health conditions, if any"
-            )
+            value=existing.get("existing_conditions") or "",
+            placeholder="Example: Diabetes, hypertension"
         )
 
-        current_symptoms = st.text_area(
-            "Current Symptoms",
-            value=profile.get("current_symptoms", ""),
-            placeholder=(
-                "Describe your current symptoms, if any"
-            )
+        current_medications = st.text_area(
+            "Current Medications",
+            value=existing.get("current_medications") or "",
+            placeholder="Enter medicines you currently take"
         )
 
-        st.info(
-            "Your information is intended for educational "
-            "health guidance. It is not a medical diagnosis."
+        allergies = st.text_area(
+            "Allergies",
+            value=existing.get("allergies") or "",
+            placeholder="Enter known allergies"
+        )
+
+        st.divider()
+
+        st.subheader("Language Preference")
+
+        language_options = ["English", "Tamil"]
+
+        saved_language = existing.get(
+            "preferred_language",
+            "English"
+        )
+
+        preferred_language = st.selectbox(
+            "Choose Your Preferred Language",
+            language_options,
+            index=(
+                language_options.index(saved_language)
+                if saved_language in language_options else 0
+            )
         )
 
         submitted = st.form_submit_button(
@@ -113,37 +133,64 @@ def render_health_profile(client, user_id):
             use_container_width=True
         )
 
-    # Save profile to Supabase
+    # ======================================
+    # SAVE PROFILE TO SUPABASE
+    # ======================================
+
     if submitted:
 
         if not full_name.strip():
+
             st.warning("Please enter your full name.")
 
-        else:
-            profile_data = {
-                "id": user_id,
-                "full_name": full_name.strip(),
-                "age": int(age),
-                "gender": gender,
-                "medical_history": medical_history.strip(),
-                "existing_conditions": existing_conditions.strip(),
-                "current_symptoms": current_symptoms.strip()
-            }
+            return
 
-            try:
-                client.table("health_profiles").upsert(
-                    profile_data
-                ).execute()
+        profile_data = {
+            "user_id": user_id,
+            "full_name": full_name.strip(),
+            "age": age,
+            "gender": gender,
+            "weight_kg": weight_kg if weight_kg > 0 else None,
+            "medical_history": medical_history.strip(),
+            "existing_conditions": existing_conditions.strip(),
+            "current_medications": current_medications.strip(),
+            "allergies": allergies.strip(),
+            "preferred_language": preferred_language,
+            "updated_at": datetime.now(
+                timezone.utc
+            ).isoformat()
+        }
 
-                st.success(
-                    "Your health profile has been saved successfully!"
+        try:
+
+            if existing:
+
+                (
+                    client.table("health_profiles")
+                    .update(profile_data)
+                    .eq("user_id", user_id)
+                    .execute()
                 )
 
-                st.rerun()
+            else:
 
-            except Exception as error:
-                st.error(
-                    "Unable to save your health profile."
+                (
+                    client.table("health_profiles")
+                    .insert(profile_data)
+                    .execute()
                 )
-                st.caption(f"Database error: {error}")
-              
+
+            st.success(
+                "Your health profile was saved successfully!"
+            )
+
+            st.rerun()
+
+        except Exception as error:
+
+            st.error("Unable to save your health profile.")
+
+            st.caption(
+                f"{type(error).__name__}: {error}"
+            )
+            
