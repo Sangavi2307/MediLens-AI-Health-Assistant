@@ -13,6 +13,7 @@ st.set_page_config(
     initial_sidebar_state="expanded"
 )
 
+
 # ==========================================
 # MODULE IMPORTS
 # ==========================================
@@ -20,12 +21,15 @@ st.set_page_config(
 from modules.extractor import extract_text_from_pdf
 from modules.analyzer import analyze_report
 from modules.authentication import render_authentication
+from modules.health_profile import render_health_profile
+
 
 # AI Explanation
 try:
     from modules.ai_explanation import ai_explain_report
 except ImportError:
     ai_explain_report = None
+
 
 # OCR
 try:
@@ -217,6 +221,7 @@ defaults = {
 }
 
 for key, value in defaults.items():
+
     if key not in st.session_state:
         st.session_state[key] = value
 
@@ -228,6 +233,23 @@ for key, value in defaults.items():
 authenticated = render_authentication()
 
 if not authenticated:
+    st.stop()
+
+
+# ==========================================
+# SUPABASE USER DETAILS
+# ==========================================
+
+supabase_client = st.session_state.get("supabase_client")
+user_id = st.session_state.get("auth_user_id")
+
+if supabase_client is None or not user_id:
+
+    st.error(
+        "Your guest session is unavailable. "
+        "Please restart your guest session."
+    )
+
     st.stop()
 
 
@@ -332,6 +354,7 @@ with st.sidebar:
         "Navigation",
         [
             "Dashboard",
+            "Patient Health Profile",
             "Medical Report Analysis",
             "AI Explanation",
             "About MediLens"
@@ -444,6 +467,18 @@ if page == "Dashboard":
     Always consult a qualified healthcare professional
     before making medical decisions.
     """)
+
+
+# ==========================================
+# PATIENT HEALTH PROFILE
+# ==========================================
+
+elif page == "Patient Health Profile":
+
+    render_health_profile(
+        supabase_client,
+        user_id
+    )
 
 
 # ==========================================
@@ -700,6 +735,7 @@ elif page == "About MediLens":
     ### Main Features
 
     - Guest authentication using Supabase
+    - Patient health profile
     - Medical report upload
     - PDF text extraction
     - Image-based report extraction using OCR
@@ -747,4 +783,3 @@ st.markdown("""
     <p>Understand Your Health Better.</p>
 </div>
 """, unsafe_allow_html=True)
-            
