@@ -180,11 +180,14 @@ def render_health_profile(client, user_id):
                     .execute()
                 )
 
-            st.success(
-                "Your health profile was saved successfully!"
-            )
-
+            st.success("Health Profile Saved Successfully!")
+            st.info(
+                "Your health details have been securely saved. "
+                "You can view and update your profile anytime."
+                )
             st.rerun()
+
+        
 
         except Exception as error:
 
