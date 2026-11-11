@@ -1,7 +1,6 @@
 
 import streamlit as st
 
-from modules.authentication import render_authentication
 from modules.extractor import extract_text_from_pdf
 from modules.analyzer import analyze_report
 
@@ -31,6 +30,20 @@ st.set_page_config(
     layout="wide",
     initial_sidebar_state="expanded"
 )
+
+
+# ==========================================
+# SESSION INITIALIZATION
+# ==========================================
+
+if "extracted_report" not in st.session_state:
+    st.session_state["extracted_report"] = None
+
+if "analysis_results" not in st.session_state:
+    st.session_state["analysis_results"] = None
+
+if "ai_explanation" not in st.session_state:
+    st.session_state["ai_explanation"] = None
 
 
 # ==========================================
@@ -73,17 +86,7 @@ div[data-testid="stMetric"] {
 
 
 # ==========================================
-# AUTHENTICATION
-# ==========================================
-
-authenticated = render_authentication()
-
-if not authenticated:
-    st.stop()
-
-
-# ==========================================
-# SIDEBAR
+# SIDEBAR NAVIGATION
 # ==========================================
 
 with st.sidebar:
@@ -181,7 +184,7 @@ elif page == "Medical Report Analysis":
 
     uploaded_file = st.file_uploader(
         "Upload your report",
-        type=["pdf", "png", "jpg", "jpeg"]
+        type=["pdf", "png", "jpg", "jpeg", "bmp"]
     )
 
     if uploaded_file:
@@ -261,8 +264,7 @@ elif page == "Medical Report Analysis":
                     f"{type(error).__name__}: {error}"
                 )
 
-
-    # Display extracted report
+    # DISPLAY EXTRACTED REPORT
 
     if st.session_state.get("extracted_report"):
 
@@ -306,8 +308,7 @@ elif page == "Medical Report Analysis":
                     f"{type(error).__name__}: {error}"
                 )
 
-
-    # Display results
+    # DISPLAY ANALYSIS RESULTS
 
     results = st.session_state.get("analysis_results")
 
@@ -320,29 +321,37 @@ elif page == "Medical Report Analysis":
         if isinstance(results, dict):
 
             below = results.get("Below", [])
+
             within = results.get("Within", [])
+
             above = results.get("Above", [])
 
             def get_count(value):
+
                 if isinstance(value, (list, dict)):
+
                     return len(value)
+
                 return 0
 
             col1, col2, col3 = st.columns(3)
 
             with col1:
+
                 st.metric(
                     "Below Range",
                     get_count(below)
                 )
 
             with col2:
+
                 st.metric(
                     "Within Range",
                     get_count(within)
                 )
 
             with col3:
+
                 st.metric(
                     "Above Range",
                     get_count(above)
@@ -361,11 +370,17 @@ elif page == "Medical Report Analysis":
             other_results = {
                 key: value
                 for key, value in results.items()
-                if key not in ["Below", "Within", "Above"]
+                if key not in [
+                    "Below",
+                    "Within",
+                    "Above"
+                ]
             }
 
             if other_results:
+
                 st.subheader("Additional Analysis")
+
                 st.json(other_results)
 
         else:
@@ -470,12 +485,12 @@ elif page == "About MediLens":
 
     **Main Features**
 
-    - Secure account authentication
     - Medical report upload
     - PDF and image text extraction
     - Laboratory result analysis
     - Below, Within and Above range classification
     - AI-powered educational explanations
+    - Medical report understanding
 
     Our goal is to make medical information
     easier to understand.
@@ -507,4 +522,5 @@ before making medical decisions.
 
 st.caption(
     "© 2026 MediLens AI Health Assistant"
-            )
+        )
+                    
