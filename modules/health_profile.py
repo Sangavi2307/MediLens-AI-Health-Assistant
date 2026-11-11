@@ -15,7 +15,10 @@ def render_health_profile(client, user_id):
         "Please provide your basic health information."
     )
 
-    # Get existing patient profile
+    # ======================================
+    # LOAD EXISTING PATIENT PROFILE
+    # ======================================
+
     try:
 
         response = (
@@ -31,7 +34,7 @@ def render_health_profile(client, user_id):
     except Exception as error:
 
         st.error("Unable to load your health profile.")
-        st.caption(str(error))
+        st.caption(f"{type(error).__name__}: {error}")
         return
 
     # ======================================
@@ -61,7 +64,10 @@ def render_health_profile(client, user_id):
             "Prefer not to say"
         ]
 
-        saved_gender = existing.get("gender", "Prefer not to say")
+        saved_gender = existing.get(
+            "gender",
+            "Prefer not to say"
+        )
 
         gender = st.selectbox(
             "Gender",
@@ -112,7 +118,10 @@ def render_health_profile(client, user_id):
 
         st.subheader("Language Preference")
 
-        language_options = ["English", "Tamil"]
+        language_options = [
+            "English",
+            "Tamil"
+        ]
 
         saved_language = existing.get(
             "preferred_language",
@@ -142,7 +151,6 @@ def render_health_profile(client, user_id):
         if not full_name.strip():
 
             st.warning("Please enter your full name.")
-
             return
 
         profile_data = {
@@ -150,7 +158,9 @@ def render_health_profile(client, user_id):
             "full_name": full_name.strip(),
             "age": age,
             "gender": gender,
-            "weight_kg": weight_kg if weight_kg > 0 else None,
+            "weight_kg": (
+                weight_kg if weight_kg > 0 else None
+            ),
             "medical_history": medical_history.strip(),
             "existing_conditions": existing_conditions.strip(),
             "current_medications": current_medications.strip(),
@@ -180,20 +190,24 @@ def render_health_profile(client, user_id):
                     .execute()
                 )
 
-            st.success("Health Profile Saved Successfully!")
+            # SUCCESS NOTIFICATION
+
+            st.success(
+                "Health Profile Saved Successfully!"
+            )
+
             st.info(
                 "Your health details have been securely saved. "
                 "You can view and update your profile anytime."
-                )
-            st.rerun()
-
-        
+            )
 
         except Exception as error:
 
-            st.error("Unable to save your health profile.")
+            st.error(
+                "Unable to save your health profile."
+            )
 
             st.caption(
                 f"{type(error).__name__}: {error}"
-            )
+        )
             
