@@ -1,24 +1,6 @@
 
 import streamlit as st
-
-from modules.extractor import extract_text_from_pdf
-from modules.analyzer import analyze_report
-
-# Optional AI explanation module
-try:
-    from modules.ai_explanation import ai_explain_report
-except ImportError:
-    ai_explain_report = None
-
-# Optional image OCR module
-try:
-    from ocr_service import extract_text_from_image
-except ImportError:
-    try:
-        from modules.ocr_service import extract_text_from_image
-    except ImportError:
-        extract_text_from_image = None
-
+import pandas as pd
 
 # ==========================================
 # PAGE CONFIGURATION
@@ -31,58 +13,221 @@ st.set_page_config(
     initial_sidebar_state="expanded"
 )
 
+# ==========================================
+# MODULE IMPORTS
+# ==========================================
+
+from modules.extractor import extract_text_from_pdf
+from modules.analyzer import analyze_report
+
+# Optional AI explanation module
+try:
+    from modules.ai_explanation import ai_explain_report
+except ImportError:
+    ai_explain_report = None
+
+# Optional OCR module
+try:
+    from ocr_service import extract_text_from_image
+except ImportError:
+    try:
+        from modules.ocr_service import extract_text_from_image
+    except ImportError:
+        extract_text_from_image = None
+
 
 # ==========================================
-# SESSION INITIALIZATION
-# ==========================================
-
-if "extracted_report" not in st.session_state:
-    st.session_state["extracted_report"] = None
-
-if "analysis_results" not in st.session_state:
-    st.session_state["analysis_results"] = None
-
-if "ai_explanation" not in st.session_state:
-    st.session_state["ai_explanation"] = None
-
-
-# ==========================================
-# CUSTOM CSS
+# CUSTOM CSS - PREMIUM MEDICAL THEME
 # ==========================================
 
 st.markdown("""
 <style>
 
+/* Main background */
 .stApp {
-    background-color: #f5f8fc;
+    background-color: #F2F8FA;
+    color: #183746;
 }
 
-.main-title {
-    color: #145374;
-    font-size: 34px;
+/* Main content */
+[data-testid="stMainBlockContainer"] {
+    max-width: 1100px;
+    padding-top: 2rem;
+}
+
+/* Sidebar */
+[data-testid="stSidebar"] {
+    background-color: #123B4A;
+}
+
+[data-testid="stSidebar"] * {
+    color: #FFFFFF;
+}
+
+/* Headings */
+h1, h2, h3 {
+    color: #123B4A !important;
+}
+
+/* Normal text */
+.stApp p,
+.stApp label {
+    color: #294957;
+}
+
+/* Metric cards */
+div[data-testid="stMetric"] {
+    background-color: #FFFFFF;
+    padding: 20px;
+    border-radius: 14px;
+    border: 1px solid #D5E7EB;
+    box-shadow: 0 3px 12px rgba(18,59,74,0.07);
+}
+
+div[data-testid="stMetricLabel"] {
+    color: #526F7C !important;
+}
+
+div[data-testid="stMetricValue"] {
+    color: #087F75 !important;
     font-weight: 800;
 }
 
-.subtitle {
-    color: #607d8b;
-    font-size: 16px;
-}
-
+/* Buttons */
 div.stButton > button {
+    background-color: #087F75;
+    color: #FFFFFF;
     border-radius: 10px;
-    min-height: 42px;
-    font-weight: 600;
+    min-height: 44px;
+    font-weight: 700;
+    border: none;
 }
 
-div[data-testid="stMetric"] {
-    background-color: white;
-    padding: 15px;
+div.stButton > button:hover {
+    background-color: #065F59;
+    color: #FFFFFF;
+}
+
+/* File uploader */
+[data-testid="stFileUploader"] {
+    background-color: #FFFFFF;
+    border: 1px dashed #087F75;
     border-radius: 12px;
-    border: 1px solid #e5edf5;
+    padding: 12px;
+}
+
+/* Input fields */
+.stTextInput input,
+.stTextArea textarea {
+    background-color: #FFFFFF;
+    color: #183746;
+    border: 1px solid #B7CDD4;
+    border-radius: 8px;
+}
+
+/* Expanders */
+[data-testid="stExpander"] {
+    background-color: #FFFFFF;
+    border: 1px solid #D5E7EB;
+    border-radius: 10px;
+}
+
+/* Alerts */
+div[data-testid="stAlert"] {
+    border-radius: 12px;
+}
+
+/* Divider */
+hr {
+    border-color: #C9DDE2;
+}
+
+/* Footer */
+footer {
+    visibility: hidden;
 }
 
 </style>
 """, unsafe_allow_html=True)
+
+
+# ==========================================
+# SESSION STATE
+# ==========================================
+
+if "extracted_text" not in st.session_state:
+    st.session_state.extracted_text = ""
+
+if "analysis_result" not in st.session_state:
+    st.session_state.analysis_result = None
+
+if "ai_explanation" not in st.session_state:
+    st.session_state.ai_explanation = None
+
+
+# ==========================================
+# HELPER FUNCTIONS
+# ==========================================
+
+def get_result_count(result, status):
+    """Count results matching a status."""
+
+    if isinstance(result, pd.DataFrame):
+        if "Status" in result.columns:
+            return int(
+                result["Status"].astype(str).str.lower()
+                .eq(status.lower()).sum()
+            )
+
+    if isinstance(result, dict):
+        for key in ("results", "tests", "lab_results"):
+            if key in result:
+                return get_result_count(result[key], status)
+
+    if isinstance(result, list):
+        count = 0
+
+        for item in result:
+            if isinstance(item, dict):
+                item_status = str(
+                    item.get("Status", item.get("status", ""))
+                ).lower()
+
+                if item_status == status.lower():
+                    count += 1
+
+        return count
+
+    return 0
+
+
+def display_analysis(result):
+    """Display analyzer output in a readable format."""
+
+    if isinstance(result, pd.DataFrame):
+        st.dataframe(result, use_container_width=True)
+        return
+
+    if isinstance(result, dict):
+        for key in ("results", "tests", "lab_results"):
+            if key in result:
+                display_analysis(result[key])
+                return
+
+        st.json(result)
+        return
+
+    if isinstance(result, list):
+        if result and all(isinstance(item, dict) for item in result):
+            st.dataframe(
+                pd.DataFrame(result),
+                use_container_width=True
+            )
+        else:
+            st.write(result)
+        return
+
+    st.write(result)
 
 
 # ==========================================
@@ -91,23 +236,19 @@ div[data-testid="stMetric"] {
 
 with st.sidebar:
 
-    st.title("🩺 MediLens")
-
+    st.markdown("# 🩺 MediLens")
     st.caption("AI Health Assistant")
 
     st.divider()
 
-    st.write("Navigation")
-
     page = st.radio(
-        "Choose a section",
+        "Navigation",
         [
             "Dashboard",
             "Medical Report Analysis",
             "AI Explanation",
             "About MediLens"
-        ],
-        label_visibility="collapsed"
+        ]
     )
 
     st.divider()
@@ -121,16 +262,9 @@ with st.sidebar:
 
 if page == "Dashboard":
 
+    st.title("Welcome to MediLens!")
     st.markdown(
-        '<p class="main-title">Welcome to MediLens!</p>',
-        unsafe_allow_html=True
-    )
-
-    st.markdown(
-        '<p class="subtitle">'
-        'Understand your medical reports with AI assistance.'
-        '</p>',
-        unsafe_allow_html=True
+        "Understand your medical reports with AI assistance."
     )
 
     st.divider()
@@ -138,35 +272,80 @@ if page == "Dashboard":
     col1, col2, col3 = st.columns(3)
 
     with col1:
-        st.metric("Platform", "AI Healthcare")
+        st.metric(
+            label="Platform",
+            value="AI Healthcare"
+        )
 
     with col2:
-        st.metric("Report Support", "PDF / Images")
+        st.metric(
+            label="Report Support",
+            value="PDF / Image"
+        )
 
     with col3:
-        st.metric("Analysis", "AI Assisted")
+        st.metric(
+            label="Analysis",
+            value="AI Assisted"
+        )
 
     st.subheader("Our Services")
 
     col1, col2 = st.columns(2)
 
     with col1:
-        st.info(
-            "📄 Medical Report Analysis\n\n"
-            "Upload your medical report and understand "
-            "your laboratory results."
-        )
+        st.markdown("""
+        <div style="
+            background:#123B4A;
+            padding:22px;
+            border-radius:14px;
+            color:white;
+            min-height:145px;
+        ">
+            <h3 style="color:white !important;">
+                📄 Medical Report Analysis
+            </h3>
+            <p style="color:#D7E9EF;">
+                Upload your medical report and
+                understand your laboratory results.
+            </p>
+        </div>
+        """, unsafe_allow_html=True)
 
     with col2:
-        st.info(
-            "🤖 AI Report Explanation\n\n"
-            "Get simple educational explanations "
-            "of your medical report."
-        )
+        st.markdown("""
+        <div style="
+            background:#087F75;
+            padding:22px;
+            border-radius:14px;
+            color:white;
+            min-height:145px;
+        ">
+            <h3 style="color:white !important;">
+                ✨ AI Report Explanation
+            </h3>
+            <p style="color:#E1F5F1;">
+                Get simple educational explanations
+                of your medical report.
+            </p>
+        </div>
+        """, unsafe_allow_html=True)
 
-    st.success(
-        "Your MediLens dashboard is ready!"
-    )
+    st.success("Your MediLens dashboard is ready!")
+
+    st.divider()
+
+    st.subheader("Medical Disclaimer")
+
+    st.info("""
+    MediLens provides educational information only.
+
+    It does not provide medical diagnosis or replace
+    professional medical advice.
+
+    Always consult a qualified healthcare professional
+    before making medical decisions.
+    """)
 
 
 # ==========================================
@@ -178,214 +357,141 @@ elif page == "Medical Report Analysis":
     st.title("📄 Medical Report Analysis")
 
     st.write(
-        "Upload your medical report to extract and "
-        "analyze the available information."
+        "Upload your medical report to extract and analyze "
+        "laboratory information."
     )
 
     uploaded_file = st.file_uploader(
-        "Upload your report",
-        type=["pdf", "png", "jpg", "jpeg", "bmp"]
+        "Upload your medical report",
+        type=["pdf", "png", "jpg", "jpeg", "bmp"],
+        help="Maximum file size: 20 MB"
     )
 
-    if uploaded_file:
+    if uploaded_file is not None:
 
         if uploaded_file.size > 20 * 1024 * 1024:
 
-            st.error("Maximum file size is 20 MB.")
+            st.error("File size exceeds the 20 MB limit.")
 
-            st.stop()
+        else:
 
-        st.success("Report uploaded successfully!")
+            st.success(
+                f"Uploaded successfully: {uploaded_file.name}"
+            )
 
-        st.caption(
-            f"File: {uploaded_file.name}"
-        )
+            if st.button("Extract Report Text"):
 
-        if st.button(
-            "Extract Report",
-            use_container_width=True
-        ):
+                try:
 
-            try:
+                    with st.spinner("Extracting report text..."):
 
-                with st.spinner("Extracting report..."):
+                        uploaded_file.seek(0)
 
-                    uploaded_file.seek(0)
+                        if uploaded_file.type == "application/pdf":
 
-                    if uploaded_file.type == "application/pdf":
+                            extracted_text = extract_text_from_pdf(
+                                uploaded_file
+                            )
 
-                        extracted_text = extract_text_from_pdf(
-                            uploaded_file
-                        )
+                        elif extract_text_from_image is not None:
 
-                    elif extract_text_from_image is not None:
+                            extracted_text = extract_text_from_image(
+                                uploaded_file
+                            )
 
-                        extracted_text = extract_text_from_image(
-                            uploaded_file
-                        )
+                        else:
 
-                    else:
+                            raise ImportError(
+                                "Image OCR module is not available."
+                            )
 
-                        st.error(
-                            "Image OCR module is not connected yet."
-                        )
-
-                        extracted_text = None
-
-                    if extracted_text:
-
-                        st.session_state["extracted_report"] = (
+                        if not extracted_text or not str(
                             extracted_text
-                        )
+                        ).strip():
 
-                        st.session_state.pop(
-                            "analysis_results", None
-                        )
+                            st.warning(
+                                "No readable text was found. "
+                                "Please upload a clearer report."
+                            )
 
-                        st.session_state.pop(
-                            "ai_explanation", None
-                        )
+                        else:
 
-                        st.success(
-                            "Report text extracted successfully!"
-                        )
+                            st.session_state.extracted_text = str(
+                                extracted_text
+                            )
 
-                    else:
+                            st.session_state.analysis_result = None
+                            st.session_state.ai_explanation = None
 
-                        st.warning(
-                            "No readable text found in the report."
-                        )
+                            st.success(
+                                "Report text extracted successfully!"
+                            )
 
-            except Exception as error:
+                except Exception as e:
 
-                st.error("Report extraction failed.")
+                    st.error(f"Extraction error: {e}")
 
-                st.caption(
-                    f"{type(error).__name__}: {error}"
-                )
+    if st.session_state.extracted_text:
 
-    # DISPLAY EXTRACTED REPORT
-
-    if st.session_state.get("extracted_report"):
-
-        st.subheader("Extracted Report")
+        st.subheader("Extracted Report Text")
 
         st.text_area(
-            "Medical Report Text",
-            value=st.session_state["extracted_report"],
+            "Report content",
+            value=st.session_state.extracted_text,
             height=250,
             disabled=True
         )
 
-        if st.button(
-            "Analyze Medical Report",
-            use_container_width=True
-        ):
+        if st.button("Analyze Medical Report"):
 
             try:
 
-                with st.spinner(
-                    "Analyzing medical report..."
-                ):
+                with st.spinner("Analyzing medical report..."):
 
-                    results = analyze_report(
-                        st.session_state["extracted_report"]
+                    result = analyze_report(
+                        st.session_state.extracted_text
                     )
 
-                    st.session_state["analysis_results"] = results
+                    st.session_state.analysis_result = result
+                    st.session_state.ai_explanation = None
 
-                    st.session_state.pop(
-                        "ai_explanation", None
-                    )
+                st.success("Medical report analysis completed!")
 
-                    st.success("Analysis completed!")
+            except Exception as e:
 
-            except Exception as error:
+                st.error(f"Analysis error: {e}")
 
-                st.error("Analysis failed.")
-
-                st.caption(
-                    f"{type(error).__name__}: {error}"
-                )
-
-    # DISPLAY ANALYSIS RESULTS
-
-    results = st.session_state.get("analysis_results")
-
-    if results is not None:
+    if st.session_state.analysis_result is not None:
 
         st.divider()
 
-        st.subheader("📊 Analysis Results")
+        st.subheader("Analysis Results")
 
-        if isinstance(results, dict):
+        result = st.session_state.analysis_result
 
-            below = results.get("Below", [])
+        col1, col2, col3 = st.columns(3)
 
-            within = results.get("Within", [])
+        with col1:
+            st.metric(
+                "Below Range",
+                get_result_count(result, "Below")
+            )
 
-            above = results.get("Above", [])
+        with col2:
+            st.metric(
+                "Within Range",
+                get_result_count(result, "Within")
+            )
 
-            def get_count(value):
+        with col3:
+            st.metric(
+                "Above Range",
+                get_result_count(result, "Above")
+            )
 
-                if isinstance(value, (list, dict)):
+        st.subheader("Laboratory Results")
 
-                    return len(value)
-
-                return 0
-
-            col1, col2, col3 = st.columns(3)
-
-            with col1:
-
-                st.metric(
-                    "Below Range",
-                    get_count(below)
-                )
-
-            with col2:
-
-                st.metric(
-                    "Within Range",
-                    get_count(within)
-                )
-
-            with col3:
-
-                st.metric(
-                    "Above Range",
-                    get_count(above)
-                )
-
-            for heading, items in [
-                ("Below Range", below),
-                ("Within Range", within),
-                ("Above Range", above)
-            ]:
-
-                with st.expander(heading):
-
-                    st.write(items)
-
-            other_results = {
-                key: value
-                for key, value in results.items()
-                if key not in [
-                    "Below",
-                    "Within",
-                    "Above"
-                ]
-            }
-
-            if other_results:
-
-                st.subheader("Additional Analysis")
-
-                st.json(other_results)
-
-        else:
-
-            st.write(results)
+        display_analysis(result)
 
 
 # ==========================================
@@ -394,81 +500,63 @@ elif page == "Medical Report Analysis":
 
 elif page == "AI Explanation":
 
-    st.title("🤖 AI Medical Report Explanation")
+    st.title("✨ AI Medical Report Explanation")
 
-    results = st.session_state.get("analysis_results")
-
-    extracted_text = st.session_state.get(
-        "extracted_report"
+    st.write(
+        "Get an easy-to-understand educational explanation "
+        "of your medical report."
     )
 
-    if not extracted_text:
+    if not st.session_state.extracted_text:
 
         st.warning(
-            "Please upload and extract a medical report first."
-        )
-
-    elif ai_explain_report is None:
-
-        st.error(
-            "AI explanation module is not connected. "
-            "Please check modules/ai_explanation.py."
+            "Please upload and extract a medical report "
+            "from the Medical Report Analysis section first."
         )
 
     else:
 
-        st.write(
-            "Generate an educational explanation "
-            "of your medical report."
-        )
+        st.success("Medical report text is available.")
 
-        if st.button(
-            "Generate AI Explanation",
-            use_container_width=True
-        ):
+        if ai_explain_report is None:
 
-            if results is None:
+            st.error(
+                "AI explanation module is unavailable. "
+                "Please check modules/ai_explanation.py."
+            )
 
-                st.warning(
-                    "Please analyze the report first."
-                )
+        else:
 
-            else:
+            if st.button("Generate AI Explanation"):
 
                 try:
 
                     with st.spinner(
-                        "AI is preparing your explanation..."
+                        "Generating AI explanation..."
                     ):
 
                         explanation = ai_explain_report(
-                            extracted_text,
-                            results
+                            st.session_state.extracted_text
                         )
 
-                        st.session_state["ai_explanation"] = (
-                            explanation
-                        )
+                        st.session_state.ai_explanation = explanation
 
-                except Exception as error:
+                except Exception as e:
 
-                    st.error(
-                        "Unable to generate AI explanation."
-                    )
+                    st.error(f"AI explanation error: {e}")
 
-                    st.caption(
-                        f"{type(error).__name__}: {error}"
-                    )
+            if st.session_state.ai_explanation is not None:
 
-        if st.session_state.get("ai_explanation"):
+                st.subheader("AI Explanation")
 
-            st.divider()
+                st.markdown(
+                    str(st.session_state.ai_explanation)
+                )
 
-            st.subheader("Your Report Explained")
-
-            st.markdown(
-                st.session_state["ai_explanation"]
-            )
+                st.info(
+                    "This explanation is for educational purposes "
+                    "and is not a medical diagnosis."
+                )
 
 
 # ==========================================
@@ -479,48 +567,53 @@ elif page == "About MediLens":
 
     st.title("About MediLens")
 
-    st.write("""
-    MediLens AI Health Assistant is designed to help
-    people understand their medical reports.
+    st.markdown("""
+    MediLens is an AI-powered medical report understanding
+    application designed to help users understand their
+    laboratory reports in simple language.
 
-    **Main Features**
+    ### Main Features
 
     - Medical report upload
-    - PDF and image text extraction
+    - PDF text extraction
+    - Image-based report extraction using OCR
     - Laboratory result analysis
-    - Below, Within and Above range classification
-    - AI-powered educational explanations
-    - Medical report understanding
+    - Below, Within and Above reference range identification
+    - AI-based educational report explanation
 
-    Our goal is to make medical information
-    easier to understand.
+    ### Technology Stack
+
+    - Python
+    - Streamlit
+    - Supabase
+    - AI-based explanation
+    - OCR
+    - Pandas
+
+    ### Our Goal
+
+    To make medical report information easier to understand
+    through accessible AI assistance.
     """)
 
-
-# ==========================================
-# MEDICAL DISCLAIMER
-# ==========================================
-
-st.divider()
-
-st.info("""
-**Medical Disclaimer**
-
-MediLens provides educational information only.
-
-It does not provide medical diagnosis or replace
-professional medical advice.
-
-Always consult a qualified healthcare professional
-before making medical decisions.
-""")
+    st.info(
+        "MediLens is an educational assistant, "
+        "not a replacement for healthcare professionals."
+    )
 
 
 # ==========================================
 # FOOTER
 # ==========================================
 
-st.caption(
-    "© 2026 MediLens AI Health Assistant"
-        )
-                    
+st.divider()
+
+st.markdown(
+    """
+    <div style="text-align:center; color:#526F7C;">
+        <p>© 2026 MediLens AI Health Assistant</p>
+        <p>Understand Your Health Better.</p>
+    </div>
+    """,
+    unsafe_allow_html=True
+    )
