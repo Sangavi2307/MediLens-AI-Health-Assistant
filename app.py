@@ -19,14 +19,15 @@ st.set_page_config(
 
 from modules.extractor import extract_text_from_pdf
 from modules.analyzer import analyze_report
+from modules.authentication import render_authentication
 
-# Optional AI explanation module
+# AI Explanation
 try:
     from modules.ai_explanation import ai_explain_report
 except ImportError:
     ai_explain_report = None
 
-# Optional OCR module
+# OCR
 try:
     from ocr_service import extract_text_from_image
 except ImportError:
@@ -37,45 +38,61 @@ except ImportError:
 
 
 # ==========================================
-# CUSTOM CSS - PREMIUM MEDICAL THEME
+# PROFESSIONAL MEDICAL THEME
 # ==========================================
 
 st.markdown("""
 <style>
 
-/* Main background */
+/* Main application background */
+
 .stApp {
     background-color: #F2F8FA;
     color: #183746;
 }
 
-/* Main content */
+/* Main container */
+
 [data-testid="stMainBlockContainer"] {
-    max-width: 1100px;
+    max-width: 1150px;
     padding-top: 2rem;
+    padding-bottom: 2rem;
 }
 
 /* Sidebar */
+
 [data-testid="stSidebar"] {
     background-color: #123B4A;
 }
 
 [data-testid="stSidebar"] * {
-    color: #FFFFFF;
+    color: #FFFFFF !important;
 }
 
 /* Headings */
+
 h1, h2, h3 {
     color: #123B4A !important;
+    font-weight: 700 !important;
 }
 
 /* Normal text */
+
 .stApp p,
 .stApp label {
     color: #294957;
 }
 
+/* Sidebar radio buttons */
+
+[data-testid="stSidebar"] [role="radiogroup"] label {
+    background-color: transparent;
+    border-radius: 8px;
+    padding: 8px;
+}
+
 /* Metric cards */
+
 div[data-testid="stMetric"] {
     background-color: #FFFFFF;
     padding: 20px;
@@ -84,9 +101,13 @@ div[data-testid="stMetric"] {
     box-shadow: 0 3px 12px rgba(18,59,74,0.07);
 }
 
+/* Metric labels */
+
 div[data-testid="stMetricLabel"] {
     color: #526F7C !important;
 }
+
+/* Metric values */
 
 div[data-testid="stMetricValue"] {
     color: #087F75 !important;
@@ -94,21 +115,25 @@ div[data-testid="stMetricValue"] {
 }
 
 /* Buttons */
+
 div.stButton > button {
     background-color: #087F75;
-    color: #FFFFFF;
+    color: #FFFFFF !important;
     border-radius: 10px;
     min-height: 44px;
     font-weight: 700;
     border: none;
+    transition: 0.2s ease;
 }
 
 div.stButton > button:hover {
     background-color: #065F59;
-    color: #FFFFFF;
+    color: #FFFFFF !important;
+    border: none;
 }
 
 /* File uploader */
+
 [data-testid="stFileUploader"] {
     background-color: #FFFFFF;
     border: 1px dashed #087F75;
@@ -117,6 +142,7 @@ div.stButton > button:hover {
 }
 
 /* Input fields */
+
 .stTextInput input,
 .stTextArea textarea {
     background-color: #FFFFFF;
@@ -125,24 +151,53 @@ div.stButton > button:hover {
     border-radius: 8px;
 }
 
+/* Select boxes */
+
+.stSelectbox div[data-baseweb="select"] {
+    background-color: #FFFFFF;
+    border-radius: 8px;
+}
+
 /* Expanders */
+
 [data-testid="stExpander"] {
     background-color: #FFFFFF;
     border: 1px solid #D5E7EB;
     border-radius: 10px;
 }
 
+/* Tabs */
+
+.stTabs [data-baseweb="tab"] {
+    color: #123B4A;
+    font-weight: 600;
+}
+
+.stTabs [aria-selected="true"] {
+    color: #087F75 !important;
+}
+
 /* Alerts */
+
 div[data-testid="stAlert"] {
     border-radius: 12px;
 }
 
+/* Dataframes */
+
+[data-testid="stDataFrame"] {
+    background-color: #FFFFFF;
+    border-radius: 10px;
+}
+
 /* Divider */
+
 hr {
     border-color: #C9DDE2;
 }
 
 /* Footer */
+
 footer {
     visibility: hidden;
 }
@@ -155,14 +210,25 @@ footer {
 # SESSION STATE
 # ==========================================
 
-if "extracted_text" not in st.session_state:
-    st.session_state.extracted_text = ""
+defaults = {
+    "extracted_text": "",
+    "analysis_result": None,
+    "ai_explanation": None
+}
 
-if "analysis_result" not in st.session_state:
-    st.session_state.analysis_result = None
+for key, value in defaults.items():
+    if key not in st.session_state:
+        st.session_state[key] = value
 
-if "ai_explanation" not in st.session_state:
-    st.session_state.ai_explanation = None
+
+# ==========================================
+# USER AUTHENTICATION
+# ==========================================
+
+authenticated = render_authentication()
+
+if not authenticated:
+    st.stop()
 
 
 # ==========================================
@@ -170,25 +236,33 @@ if "ai_explanation" not in st.session_state:
 # ==========================================
 
 def get_result_count(result, status):
-    """Count results matching a status."""
 
     if isinstance(result, pd.DataFrame):
+
         if "Status" in result.columns:
+
             return int(
-                result["Status"].astype(str).str.lower()
-                .eq(status.lower()).sum()
+                result["Status"].astype(str)
+                .str.lower()
+                .eq(status.lower())
+                .sum()
             )
 
     if isinstance(result, dict):
+
         for key in ("results", "tests", "lab_results"):
+
             if key in result:
                 return get_result_count(result[key], status)
 
     if isinstance(result, list):
+
         count = 0
 
         for item in result:
+
             if isinstance(item, dict):
+
                 item_status = str(
                     item.get("Status", item.get("status", ""))
                 ).lower()
@@ -202,14 +276,20 @@ def get_result_count(result, status):
 
 
 def display_analysis(result):
-    """Display analyzer output in a readable format."""
 
     if isinstance(result, pd.DataFrame):
-        st.dataframe(result, use_container_width=True)
+
+        st.dataframe(
+            result,
+            use_container_width=True
+        )
+
         return
 
     if isinstance(result, dict):
+
         for key in ("results", "tests", "lab_results"):
+
             if key in result:
                 display_analysis(result[key])
                 return
@@ -218,13 +298,19 @@ def display_analysis(result):
         return
 
     if isinstance(result, list):
-        if result and all(isinstance(item, dict) for item in result):
+
+        if result and all(
+            isinstance(item, dict) for item in result
+        ):
+
             st.dataframe(
                 pd.DataFrame(result),
                 use_container_width=True
             )
+
         else:
             st.write(result)
+
         return
 
     st.write(result)
@@ -237,7 +323,8 @@ def display_analysis(result):
 with st.sidebar:
 
     st.markdown("# 🩺 MediLens")
-    st.caption("AI Health Assistant")
+
+    st.caption("AI HEALTH ASSISTANT")
 
     st.divider()
 
@@ -263,8 +350,14 @@ with st.sidebar:
 if page == "Dashboard":
 
     st.title("Welcome to MediLens!")
+
     st.markdown(
-        "Understand your medical reports with AI assistance."
+        "### Understand your medical reports with AI assistance."
+    )
+
+    st.write(
+        "A simple and accessible way to understand "
+        "your laboratory reports."
     )
 
     st.divider()
@@ -272,35 +365,41 @@ if page == "Dashboard":
     col1, col2, col3 = st.columns(3)
 
     with col1:
+
         st.metric(
             label="Platform",
             value="AI Healthcare"
         )
 
     with col2:
+
         st.metric(
             label="Report Support",
             value="PDF / Image"
         )
 
     with col3:
+
         st.metric(
             label="Analysis",
             value="AI Assisted"
         )
+
+    st.divider()
 
     st.subheader("Our Services")
 
     col1, col2 = st.columns(2)
 
     with col1:
+
         st.markdown("""
         <div style="
             background:#123B4A;
-            padding:22px;
+            padding:24px;
             border-radius:14px;
             color:white;
-            min-height:145px;
+            min-height:170px;
         ">
             <h3 style="color:white !important;">
                 📄 Medical Report Analysis
@@ -313,13 +412,14 @@ if page == "Dashboard":
         """, unsafe_allow_html=True)
 
     with col2:
+
         st.markdown("""
         <div style="
             background:#087F75;
-            padding:22px;
+            padding:24px;
             border-radius:14px;
             color:white;
-            min-height:145px;
+            min-height:170px;
         ">
             <h3 style="color:white !important;">
                 ✨ AI Report Explanation
@@ -330,8 +430,6 @@ if page == "Dashboard":
             </p>
         </div>
         """, unsafe_allow_html=True)
-
-    st.success("Your MediLens dashboard is ready!")
 
     st.divider()
 
@@ -371,7 +469,9 @@ elif page == "Medical Report Analysis":
 
         if uploaded_file.size > 20 * 1024 * 1024:
 
-            st.error("File size exceeds the 20 MB limit.")
+            st.error(
+                "File size exceeds the 20 MB limit."
+            )
 
         else:
 
@@ -383,7 +483,9 @@ elif page == "Medical Report Analysis":
 
                 try:
 
-                    with st.spinner("Extracting report text..."):
+                    with st.spinner(
+                        "Extracting report text..."
+                    ):
 
                         uploaded_file.seek(0)
 
@@ -421,17 +523,22 @@ elif page == "Medical Report Analysis":
                             )
 
                             st.session_state.analysis_result = None
+
                             st.session_state.ai_explanation = None
 
                             st.success(
                                 "Report text extracted successfully!"
                             )
 
-                except Exception as e:
+                except Exception as error:
 
-                    st.error(f"Extraction error: {e}")
+                    st.error(
+                        f"Extraction error: {error}"
+                    )
 
     if st.session_state.extracted_text:
+
+        st.divider()
 
         st.subheader("Extracted Report Text")
 
@@ -446,20 +553,27 @@ elif page == "Medical Report Analysis":
 
             try:
 
-                with st.spinner("Analyzing medical report..."):
+                with st.spinner(
+                    "Analyzing medical report..."
+                ):
 
                     result = analyze_report(
                         st.session_state.extracted_text
                     )
 
                     st.session_state.analysis_result = result
+
                     st.session_state.ai_explanation = None
 
-                st.success("Medical report analysis completed!")
+                st.success(
+                    "Medical report analysis completed!"
+                )
 
-            except Exception as e:
+            except Exception as error:
 
-                st.error(f"Analysis error: {e}")
+                st.error(
+                    f"Analysis error: {error}"
+                )
 
     if st.session_state.analysis_result is not None:
 
@@ -472,22 +586,27 @@ elif page == "Medical Report Analysis":
         col1, col2, col3 = st.columns(3)
 
         with col1:
+
             st.metric(
                 "Below Range",
                 get_result_count(result, "Below")
             )
 
         with col2:
+
             st.metric(
                 "Within Range",
                 get_result_count(result, "Within")
             )
 
         with col3:
+
             st.metric(
                 "Above Range",
                 get_result_count(result, "Above")
             )
+
+        st.divider()
 
         st.subheader("Laboratory Results")
 
@@ -516,7 +635,9 @@ elif page == "AI Explanation":
 
     else:
 
-        st.success("Medical report text is available.")
+        st.success(
+            "Medical report text is available."
+        )
 
         if ai_explain_report is None:
 
@@ -541,11 +662,15 @@ elif page == "AI Explanation":
 
                         st.session_state.ai_explanation = explanation
 
-                except Exception as e:
+                except Exception as error:
 
-                    st.error(f"AI explanation error: {e}")
+                    st.error(
+                        f"AI explanation error: {error}"
+                    )
 
             if st.session_state.ai_explanation is not None:
+
+                st.divider()
 
                 st.subheader("AI Explanation")
 
@@ -574,6 +699,7 @@ elif page == "About MediLens":
 
     ### Main Features
 
+    - Guest authentication using Supabase
     - Medical report upload
     - PDF text extraction
     - Image-based report extraction using OCR
@@ -596,6 +722,8 @@ elif page == "About MediLens":
     through accessible AI assistance.
     """)
 
+    st.divider()
+
     st.info(
         "MediLens is an educational assistant, "
         "not a replacement for healthcare professionals."
@@ -608,12 +736,15 @@ elif page == "About MediLens":
 
 st.divider()
 
-st.markdown(
-    """
-    <div style="text-align:center; color:#526F7C;">
-        <p>© 2026 MediLens AI Health Assistant</p>
-        <p>Understand Your Health Better.</p>
-    </div>
-    """,
-    unsafe_allow_html=True
-    )
+st.markdown("""
+<div style="
+    text-align:center;
+    color:#526F7C;
+    padding:15px;
+">
+    <p><b>MediLens AI Health Assistant</b></p>
+    <p>© 2026 MediLens. All rights reserved.</p>
+    <p>Understand Your Health Better.</p>
+</div>
+""", unsafe_allow_html=True)
+            
