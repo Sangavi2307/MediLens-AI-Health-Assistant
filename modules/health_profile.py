@@ -11,10 +11,7 @@ def render_health_profile(client, user_id):
         st.error("Your guest session is unavailable. Please sign in again.")
         return
 
-    # ------------------------------------------
-    # LOAD EXISTING HEALTH PROFILE
-    # ------------------------------------------
-
+    # Load the existing profile for this user.
     try:
         response = (
             client.table("health_profiles")
@@ -33,15 +30,10 @@ def render_health_profile(client, user_id):
 
     if existing:
         st.success("Your previously saved health profile has been loaded.")
-        st.info("Your saved information is displayed below. You can edit it and save your changes.")
+        st.info("Your saved details are shown below. You can edit and update them.")
     else:
-        st.info("Welcome! Please create your health profile.")
+        st.info("Please create your health profile.")
 
-    # ------------------------------------------
-    # DEFAULT VALUES
-    # ------------------------------------------
-
-    saved_gender = existing.get("gender") or "Prefer not to say"
     gender_options = [
         "Male",
         "Female",
@@ -49,8 +41,7 @@ def render_health_profile(client, user_id):
         "Prefer not to say"
     ]
 
-    saved_language = existing.get("preferred_language") or "English"
-    language_options = ["English", "Tamil"]
+    saved_gender = existing.get("gender") or "Prefer not to say"
 
     gender_index = (
         gender_options.index(saved_gender)
@@ -58,15 +49,15 @@ def render_health_profile(client, user_id):
         else 3
     )
 
+    language_options = ["English", "Tamil"]
+
+    saved_language = existing.get("preferred_language") or "English"
+
     language_index = (
         language_options.index(saved_language)
         if saved_language in language_options
         else 0
     )
-
-    # ------------------------------------------
-    # HEALTH PROFILE FORM
-    # ------------------------------------------
 
     with st.form("patient_health_profile"):
 
@@ -103,26 +94,22 @@ def render_health_profile(client, user_id):
 
         medical_history = st.text_area(
             "Medical History",
-            value=existing.get("medical_history") or "",
-            placeholder="Enter your relevant medical history."
+            value=existing.get("medical_history") or ""
         )
 
         existing_conditions = st.text_area(
             "Existing Health Conditions",
-            value=existing.get("existing_conditions") or "",
-            placeholder="Example: Diabetes, hypertension"
+            value=existing.get("existing_conditions") or ""
         )
 
         current_medications = st.text_area(
             "Current Medications",
-            value=existing.get("current_medications") or "",
-            placeholder="Enter medicines you currently take."
+            value=existing.get("current_medications") or ""
         )
 
         allergies = st.text_area(
             "Allergies",
-            value=existing.get("allergies") or "",
-            placeholder="Enter any known allergies."
+            value=existing.get("allergies") or ""
         )
 
         st.divider()
@@ -138,10 +125,6 @@ def render_health_profile(client, user_id):
             "Save Health Profile",
             use_container_width=True
         )
-
-    # ------------------------------------------
-    # SAVE OR UPDATE PROFILE
-    # ------------------------------------------
 
     if submitted:
 
@@ -166,7 +149,6 @@ def render_health_profile(client, user_id):
         try:
 
             if existing:
-                # Update the existing profile.
                 client.table("health_profiles").update(
                     profile_data
                 ).eq(
@@ -176,7 +158,6 @@ def render_health_profile(client, user_id):
                 st.success("Your existing Health Profile was updated successfully!")
 
             else:
-                # Insert only when this user has no profile.
                 client.table("health_profiles").insert(
                     profile_data
                 ).execute()
