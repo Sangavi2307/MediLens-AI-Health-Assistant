@@ -1,18 +1,19 @@
-
 import streamlit as st
 from supabase import create_client
-from streamlit_cookies_manager import EncryptedCookieManager
 
 
-COOKIE_NAME = "medilens_guest_refresh_token"
-
+# ==========================================
+# INITIALIZE AUTHENTICATION SESSION
+# ==========================================
 
 def initialize_auth_session():
+
     defaults = {
         "auth_user_id": None,
         "auth_user_email": None,
         "supabase_client": None,
         "is_authenticated": False,
+        "auth_method": None
     }
 
     for key, value in defaults.items():
@@ -20,172 +21,319 @@ def initialize_auth_session():
             st.session_state[key] = value
 
 
-def get_cookies():
-    try:
-        password = st.secrets["COOKIE_PASSWORD"]
-
-        cookies = EncryptedCookieManager(
-            prefix="medilens/",
-            password=password
-        )
-
-        if not cookies.ready():
-            st.info("Restoring your secure MediLens session...")
-            st.stop()
-
-        return cookies
-
-    except Exception as error:
-        st.error("Unable to initialize secure session storage.")
-        st.caption(f"{type(error).__name__}: {error}")
-        return None
-
+# ==========================================
+# SUPABASE CONNECTION
+# ==========================================
 
 def get_supabase_client():
+
     if st.session_state.get("supabase_client") is None:
+
         try:
             url = st.secrets["SUPABASE_URL"]
             key = st.secrets["SUPABASE_KEY"]
 
-            st.session_state["supabase_client"] = create_client(
-                url, key
-            )
+            client = create_client(url, key)
+
+            st.session_state["supabase_client"] = client
 
         except Exception as error:
             st.error("Supabase connection failed.")
-            st.caption(f"{type(error).__name__}: {error}")
+            st.caption(str(error))
             return None
 
     return st.session_state["supabase_client"]
 
 
-def restore_auth_session(client, cookies):
+# ==========================================
+# SAVE AUTHENTICATED USER DETAILS
+# ==========================================
+
+def set_user_session(user, auth_method):
+
+    st.session_state["auth_user_id"] = user.id
+    st.session_state["auth_user_email"] = getattr(
+        user, "email", None
+    )
+    st.session_state["is_authenticated"] = True
+    st.session_state["auth_method"] = auth_method
+
+
+# ==========================================
+# CREATE ACCOUNT
+# ==========================================
+
+def create_account(client, email, password):
+
     try:
-        refresh_token = cookies.get(COOKIE_NAME)
 
-        if not refresh_token:
+        response = client.auth.sign_up({
+            "email": email,
+            "password": password
+        })
+
+        if response.user is None:
+            st.error("Account creation failed.")
             return False
 
-        response = client.auth.refresh_session(refresh_token)
-
-        if not response or not response.session:
+        if response.session is None:
+            st.success(
+                "Account created successfully! "
+                "Please verify your email before logging in."
+            )
             return False
 
-        session = response.session
+        set_user_session(response.user, "email")
 
-        cookies[COOKIE_NAME] = session.refresh_token
-        cookies.save()
-
-        st.session_state["auth_user_id"] = session.user.id
-        st.session_state["auth_user_email"] = session.user.email
-        st.session_state["is_authenticated"] = True
+        st.success("Account created successfully!")
 
         return True
 
-    except Exception:
+    except Exception as error:
+        st.error("Unable to create your account.")
+        st.caption(str(error))
         return False
 
 
-def guest_sign_in(client, cookies):
-    try:
-        # First try restoring the previous guest account.
-        if restore_auth_session(client, cookies):
-            st.success("Your previous guest account was restored.")
-            st.rerun()
-            return True
+# ==========================================
+# EMAIL LOGIN
+# ==========================================
 
-        # Create a guest only when no previous session exists.
+def login_user(client, email, password):
+
+    try:
+
+        response = client.auth.sign_in_with_password({
+            "email": email,
+            "password": password
+        })
+
+        if response.user is None or response.session is None:
+            st.error("Login failed. Please check your details.")
+            return False
+
+        set_user_session(response.user, "email")
+
+        st.success("Login successful!")
+
+        return True
+
+    except Exception as error:
+        st.error("Login failed.")
+        st.caption(str(error))
+        return False
+
+
+# ==========================================
+# GUEST LOGIN
+# ==========================================
+
+def guest_sign_in(client):
+
+    try:
+
         response = client.auth.sign_in_anonymously()
 
-        if not response.user or not response.session:
+        if response.user is None or response.session is None:
             st.error("Guest sign-in was unsuccessful.")
             return False
 
-        session = response.session
+        set_user_session(response.user, "guest")
 
-        cookies[COOKIE_NAME] = session.refresh_token
-        cookies.save()
-
-        st.session_state["auth_user_id"] = response.user.id
-        st.session_state["auth_user_email"] = None
-        st.session_state["is_authenticated"] = True
-
-        st.success("Guest access activated successfully!")
-        st.rerun()
+        st.success("Guest access activated!")
 
         return True
 
     except Exception as error:
         st.error("Unable to start your guest session.")
-        st.caption(f"{type(error).__name__}: {error}")
+        st.caption(str(error))
         return False
 
 
+# ==========================================
+# LOGOUT
+# ==========================================
+
 def logout_user(client, cookies=None):
+
     try:
         client.auth.sign_out()
 
     except Exception as error:
-        st.warning("Unable to complete sign-out.")
+        st.warning("Sign-out could not be completed.")
         st.caption(str(error))
-
-    if cookies is not None:
-        try:
-            if COOKIE_NAME in cookies:
-                del cookies[COOKIE_NAME]
-                cookies.save()
-        except Exception:
-            pass
 
     st.session_state["auth_user_id"] = None
     st.session_state["auth_user_email"] = None
     st.session_state["is_authenticated"] = False
+    st.session_state["auth_method"] = None
 
-    for key in [
-        "extracted_text",
-        "analysis_result",
-        "ai_explanation",
-        "extracted_report",
-        "analysis_results",
-    ]:
-        st.session_state.pop(key, None)
+    st.session_state["extracted_text"] = ""
+    st.session_state["analysis_result"] = None
+    st.session_state["ai_explanation"] = None
 
     st.rerun()
 
 
+# ==========================================
+# RENDER AUTHENTICATION PAGE
+# ==========================================
+
 def render_authentication():
+
     initialize_auth_session()
 
-    cookies = get_cookies()
-
-    if cookies is None:
-        return False
+    # Reuse existing session during Streamlit reruns.
+    if (
+        st.session_state.get("is_authenticated")
+        and st.session_state.get("auth_user_id")
+    ):
+        return True
 
     client = get_supabase_client()
 
     if client is None:
         return False
 
-    # Existing authenticated session in Streamlit.
-    if (
-        st.session_state.get("auth_user_id")
-        and st.session_state.get("is_authenticated")
-    ):
-        return True
-
-    # Restore the same guest account after reopening.
-    if restore_auth_session(client, cookies):
-        return True
-
     st.title("🩺 Welcome to MediLens")
-    st.write("Understand your medical reports with AI assistance.")
 
-    st.info("Use MediLens without creating an email account.")
+    st.write(
+        "Understand your medical reports "
+        "with AI assistance."
+    )
 
-    st.subheader("Guest Access")
-    st.write("Continue securely with a guest session.")
+    st.divider()
 
-    if st.button("Continue as Guest", use_container_width=True):
-        guest_sign_in(client, cookies)
+    login_tab, signup_tab, guest_tab = st.tabs([
+        "Login",
+        "Create Account",
+        "Continue as Guest"
+    ])
+
+    # ======================================
+    # LOGIN TAB
+    # ======================================
+
+    with login_tab:
+
+        st.subheader("Login to MediLens")
+
+        with st.form("login_form"):
+
+            login_email = st.text_input(
+                "Email Address",
+                key="login_email"
+            )
+
+            login_password = st.text_input(
+                "Password",
+                type="password",
+                key="login_password"
+            )
+
+            login_submit = st.form_submit_button(
+                "Login",
+                use_container_width=True
+            )
+
+        if login_submit:
+
+            if not login_email.strip() or not login_password:
+                st.warning(
+                    "Please enter your email and password."
+                )
+
+            else:
+
+                success = login_user(
+                    client,
+                    login_email.strip(),
+                    login_password
+                )
+
+                if success:
+                    st.rerun()
+
+    # ======================================
+    # CREATE ACCOUNT TAB
+    # ======================================
+
+    with signup_tab:
+
+        st.subheader("Create Your Account")
+
+        with st.form("signup_form"):
+
+            signup_email = st.text_input(
+                "Email Address",
+                key="signup_email"
+            )
+
+            signup_password = st.text_input(
+                "Create Password",
+                type="password",
+                key="signup_password"
+            )
+
+            confirm_password = st.text_input(
+                "Confirm Password",
+                type="password",
+                key="confirm_password"
+            )
+
+            signup_submit = st.form_submit_button(
+                "Create Account",
+                use_container_width=True
+            )
+
+        if signup_submit:
+
+            if not signup_email.strip():
+                st.warning("Please enter your email address.")
+
+            elif not signup_password:
+                st.warning("Please create a password.")
+
+            elif len(signup_password) < 8:
+                st.warning(
+                    "Password must contain at least 8 characters."
+                )
+
+            elif signup_password != confirm_password:
+                st.error("Passwords do not match.")
+
+            else:
+
+                success = create_account(
+                    client,
+                    signup_email.strip(),
+                    signup_password
+                )
+
+                if success:
+                    st.rerun()
+
+    # ======================================
+    # GUEST TAB
+    # ======================================
+
+    with guest_tab:
+
+        st.subheader("Guest Access")
+
+        st.info(
+            "Continue without creating an email account. "
+            "Guest access is temporary."
+        )
+
+        if st.button(
+            "Continue as Guest",
+            use_container_width=True
+        ):
+
+            success = guest_sign_in(client)
+
+            if success:
+                st.rerun()
 
     return False
