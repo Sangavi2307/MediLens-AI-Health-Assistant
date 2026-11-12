@@ -3,26 +3,16 @@ import streamlit as st
 from datetime import datetime, timezone
 
 
-# ==========================================
-# PATIENT HEALTH PROFILE
-# ==========================================
-
 def render_health_profile(client, user_id):
 
     st.title("Patient Health Profile")
-
-    st.write(
-        "Please provide your basic health information."
-    )
+    st.write("View and update your saved health information.")
 
     if not user_id:
-        st.error("Your guest session is unavailable. Please sign in again.")
+        st.error("Guest session unavailable. Please sign in again.")
         return
 
-    # ======================================
-    # LOAD EXISTING PATIENT PROFILE
-    # ======================================
-
+    # Load existing profile
     try:
         response = (
             client.table("health_profiles")
@@ -35,19 +25,46 @@ def render_health_profile(client, user_id):
         existing = response.data[0] if response.data else {}
 
     except Exception as error:
-        st.error("Unable to load your health profile.")
-        st.caption(f"{type(error).__name__}: {error}")
+        st.error("Unable to load health profile.")
+        st.caption(str(error))
         return
 
     if existing:
-        st.success("Your saved health profile has been loaded.")
+        st.success("Your saved health profile is loaded.")
     else:
-        st.info("No saved health profile found. Please enter your details.")
+        st.info("Create your health profile.")
 
-    # ======================================
-    # PROFILE FORM
-    # ======================================
+    # Edit mode
+    edit_key = f"edit_profile_{user_id}"
 
+    if edit_key not in st.session_state:
+        st.session_state[edit_key] = not bool(existing)
+
+    if existing and not st.session_state[edit_key]:
+
+        st.subheader("My Health Profile")
+
+        st.write("**Full Name:**", existing.get("full_name", ""))
+        st.write("**Age:**", existing.get("age", ""))
+        st.write("**Gender:**", existing.get("gender", ""))
+        st.write("**Weight:**", existing.get("weight_kg") or "Not provided")
+        st.write("**Medical History:**", existing.get("medical_history", ""))
+        st.write("**Existing Conditions:**", existing.get("existing_conditions", ""))
+        st.write("**Current Medications:**", existing.get("current_medications", ""))
+        st.write("**Allergies:**", existing.get("allergies", ""))
+
+        st.write(
+            "**Preferred Language:**",
+            existing.get("preferred_language", "English")
+        )
+
+        if st.button("Edit Health Profile", use_container_width=True):
+            st.session_state[edit_key] = True
+            st.rerun()
+
+        return
+
+    # Profile edit form
     with st.form("patient_health_profile"):
 
         st.subheader("Personal Information")
@@ -81,7 +98,8 @@ def render_health_profile(client, user_id):
             gender_options,
             index=(
                 gender_options.index(saved_gender)
-                if saved_gender in gender_options else 3
+                if saved_gender in gender_options
+                else 3
             )
         )
 
@@ -94,35 +112,29 @@ def render_health_profile(client, user_id):
         )
 
         st.divider()
-
         st.subheader("Health Information")
 
         medical_history = st.text_area(
             "Medical History",
-            value=existing.get("medical_history") or "",
-            placeholder="Enter relevant medical history"
+            value=existing.get("medical_history") or ""
         )
 
         existing_conditions = st.text_area(
             "Existing Health Conditions",
-            value=existing.get("existing_conditions") or "",
-            placeholder="Example: Diabetes, hypertension"
+            value=existing.get("existing_conditions") or ""
         )
 
         current_medications = st.text_area(
             "Current Medications",
-            value=existing.get("current_medications") or "",
-            placeholder="Enter medicines you currently take"
+            value=existing.get("current_medications") or ""
         )
 
         allergies = st.text_area(
             "Allergies",
-            value=existing.get("allergies") or "",
-            placeholder="Enter known allergies"
+            value=existing.get("allergies") or ""
         )
 
         st.divider()
-
         st.subheader("Language Preference")
 
         language_options = ["English", "Tamil"]
@@ -137,18 +149,15 @@ def render_health_profile(client, user_id):
             language_options,
             index=(
                 language_options.index(saved_language)
-                if saved_language in language_options else 0
+                if saved_language in language_options
+                else 0
             )
         )
 
         submitted = st.form_submit_button(
-            "Save Health Profile",
+            "Save Changes",
             use_container_width=True
         )
-
-    # ======================================
-    # SAVE OR UPDATE PROFILE
-    # ======================================
 
     if submitted:
 
@@ -167,41 +176,31 @@ def render_health_profile(client, user_id):
             "current_medications": current_medications.strip(),
             "allergies": allergies.strip(),
             "preferred_language": preferred_language,
-            "updated_at": datetime.now(
-                timezone.utc
-            ).isoformat()
+            "updated_at": datetime.now(timezone.utc).isoformat()
         }
 
         try:
 
             if existing:
-
-                client.table("health_profiles").update(
-                    profile_data
-                ).eq(
-                    "user_id", user_id
-                ).execute()
+                (
+                    client.table("health_profiles")
+                    .update(profile_data)
+                    .eq("user_id", user_id)
+                    .execute()
+                )
 
             else:
+                (
+                    client.table("health_profiles")
+                    .insert(profile_data)
+                    .execute()
+                )
 
-                client.table("health_profiles").insert(
-                    profile_data
-                ).execute()
+            st.session_state[edit_key] = False
 
-            st.success(
-                "Health Profile Saved Successfully!"
-            )
-
-            st.info(
-                "Your health details have been securely saved. "
-                "You can view and update your profile anytime."
-            )
+            st.success("Health Profile Saved Successfully!")
+            st.rerun()
 
         except Exception as error:
-
-            st.error("Unable to save your health profile.")
-
-            st.caption(
-                f"{type(error).__name__}: {error}"
-            )
-            
+            st.error("Unable to save health profile.")
+            st.caption(f"{type(error).__name__}: {error}")
