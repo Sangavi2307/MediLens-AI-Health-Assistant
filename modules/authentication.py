@@ -1,3 +1,4 @@
+
 import streamlit as st
 from supabase import create_client
 
@@ -7,7 +8,6 @@ from supabase import create_client
 # ==========================================
 
 def initialize_auth_session():
-
     defaults = {
         "auth_user_id": None,
         "auth_user_email": None,
@@ -46,15 +46,17 @@ def get_supabase_client():
 
 
 # ==========================================
-# SAVE AUTHENTICATED USER DETAILS
+# SAVE USER SESSION
 # ==========================================
 
 def set_user_session(user, auth_method):
 
     st.session_state["auth_user_id"] = user.id
+
     st.session_state["auth_user_email"] = getattr(
         user, "email", None
     )
+
     st.session_state["is_authenticated"] = True
     st.session_state["auth_method"] = auth_method
 
@@ -76,10 +78,13 @@ def create_account(client, email, password):
             st.error("Account creation failed.")
             return False
 
+        # Email confirmation is disabled in Supabase.
+        # A session should normally be returned immediately.
+
         if response.session is None:
-            st.success(
-                "Account created successfully! "
-                "Please verify your email before logging in."
+            st.warning(
+                "Account was created, but no login session was returned. "
+                "Please check your Supabase email confirmation settings."
             )
             return False
 
@@ -90,8 +95,10 @@ def create_account(client, email, password):
         return True
 
     except Exception as error:
+
         st.error("Unable to create your account.")
         st.caption(str(error))
+
         return False
 
 
@@ -109,7 +116,11 @@ def login_user(client, email, password):
         })
 
         if response.user is None or response.session is None:
-            st.error("Login failed. Please check your details.")
+
+            st.error(
+                "Login failed. Please check your email and password."
+            )
+
             return False
 
         set_user_session(response.user, "email")
@@ -119,34 +130,10 @@ def login_user(client, email, password):
         return True
 
     except Exception as error:
-        st.error("Login failed.")
+
+        st.error("Login failed. Please check your login details.")
         st.caption(str(error))
-        return False
 
-
-# ==========================================
-# GUEST LOGIN
-# ==========================================
-
-def guest_sign_in(client):
-
-    try:
-
-        response = client.auth.sign_in_anonymously()
-
-        if response.user is None or response.session is None:
-            st.error("Guest sign-in was unsuccessful.")
-            return False
-
-        set_user_session(response.user, "guest")
-
-        st.success("Guest access activated!")
-
-        return True
-
-    except Exception as error:
-        st.error("Unable to start your guest session.")
-        st.caption(str(error))
         return False
 
 
@@ -167,6 +154,7 @@ def logout_user(client, cookies=None):
     st.session_state["auth_user_email"] = None
     st.session_state["is_authenticated"] = False
     st.session_state["auth_method"] = None
+    st.session_state["supabase_client"] = None
 
     st.session_state["extracted_text"] = ""
     st.session_state["analysis_result"] = None
@@ -183,7 +171,8 @@ def render_authentication():
 
     initialize_auth_session()
 
-    # Reuse existing session during Streamlit reruns.
+    # Reuse existing authenticated session.
+
     if (
         st.session_state.get("is_authenticated")
         and st.session_state.get("auth_user_id")
@@ -204,10 +193,9 @@ def render_authentication():
 
     st.divider()
 
-    login_tab, signup_tab, guest_tab = st.tabs([
+    login_tab, signup_tab = st.tabs([
         "Login",
-        "Create Account",
-        "Continue as Guest"
+        "Create Account"
     ])
 
     # ======================================
@@ -239,6 +227,7 @@ def render_authentication():
         if login_submit:
 
             if not login_email.strip() or not login_password:
+
                 st.warning(
                     "Please enter your email and password."
                 )
@@ -289,17 +278,21 @@ def render_authentication():
         if signup_submit:
 
             if not signup_email.strip():
+
                 st.warning("Please enter your email address.")
 
             elif not signup_password:
+
                 st.warning("Please create a password.")
 
             elif len(signup_password) < 8:
+
                 st.warning(
                     "Password must contain at least 8 characters."
                 )
 
             elif signup_password != confirm_password:
+
                 st.error("Passwords do not match.")
 
             else:
@@ -312,28 +305,5 @@ def render_authentication():
 
                 if success:
                     st.rerun()
-
-    # ======================================
-    # GUEST TAB
-    # ======================================
-
-    with guest_tab:
-
-        st.subheader("Guest Access")
-
-        st.info(
-            "Continue without creating an email account. "
-            "Guest access is temporary."
-        )
-
-        if st.button(
-            "Continue as Guest",
-            use_container_width=True
-        ):
-
-            success = guest_sign_in(client)
-
-            if success:
-                st.rerun()
 
     return False
