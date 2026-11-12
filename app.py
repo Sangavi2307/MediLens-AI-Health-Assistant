@@ -13,7 +13,6 @@ st.set_page_config(
     initial_sidebar_state="expanded"
 )
 
-
 # ==========================================
 # MODULE IMPORTS
 # ==========================================
@@ -30,7 +29,6 @@ from modules.authentication import (
 
 from modules.health_profile import render_health_profile
 
-
 # ==========================================
 # AI EXPLANATION IMPORT
 # ==========================================
@@ -39,7 +37,6 @@ try:
     from modules.ai_explanation import ai_explain_report
 except ImportError:
     ai_explain_report = None
-
 
 # ==========================================
 # OCR IMPORT
@@ -53,6 +50,19 @@ except ImportError:
     except ImportError:
         extract_text_from_image = None
 
+# ==========================================
+# CONSTANTS
+# ==========================================
+
+MAX_FILE_SIZE = 20 * 1024 * 1024
+
+ALLOWED_FILE_TYPES = [
+    "pdf",
+    "png",
+    "jpg",
+    "jpeg",
+    "bmp"
+]
 
 # ==========================================
 # PROFESSIONAL MEDICAL THEME
@@ -182,7 +192,6 @@ footer {
 </style>
 """, unsafe_allow_html=True)
 
-
 # ==========================================
 # SESSION STATE
 # ==========================================
@@ -190,13 +199,13 @@ footer {
 defaults = {
     "extracted_text": "",
     "analysis_result": None,
-    "ai_explanation": None
+    "ai_explanation": None,
+    "selected_page": "Patient Health Profile"
 }
 
 for key, value in defaults.items():
     if key not in st.session_state:
         st.session_state[key] = value
-
 
 # ==========================================
 # AUTHENTICATION
@@ -209,7 +218,6 @@ authenticated = render_authentication()
 if not authenticated:
     st.stop()
 
-
 # ==========================================
 # SUPABASE USER DETAILS
 # ==========================================
@@ -220,14 +228,22 @@ user_id = st.session_state.get("auth_user_id")
 
 if supabase_client is None or not user_id:
     st.error(
-        "Your guest session is unavailable. "
-        "Please start your guest session again."
+        "Your session is unavailable. "
+        "Please log in or start your guest session again."
     )
     st.stop()
 
+# ==========================================
+# NAVIGATION CALLBACK
+# ==========================================
+
+def navigate_to_analysis():
+    st.session_state["selected_page"] = (
+        "Medical Report Analysis"
+    )
 
 # ==========================================
-# HELPER FUNCTIONS
+# RESULT COUNT HELPER
 # ==========================================
 
 def get_result_count(result, status):
@@ -247,7 +263,10 @@ def get_result_count(result, status):
         for key in ("results", "tests", "lab_results"):
 
             if key in result:
-                return get_result_count(result[key], status)
+                return get_result_count(
+                    result[key],
+                    status
+                )
 
     if isinstance(result, list):
 
@@ -258,7 +277,10 @@ def get_result_count(result, status):
             if isinstance(item, dict):
 
                 item_status = str(
-                    item.get("Status", item.get("status", ""))
+                    item.get(
+                        "Status",
+                        item.get("status", "")
+                    )
                 ).lower()
 
                 if item_status == status.lower():
@@ -268,6 +290,9 @@ def get_result_count(result, status):
 
     return 0
 
+# ==========================================
+# DISPLAY ANALYSIS RESULTS
+# ==========================================
 
 def display_analysis(result):
 
@@ -309,7 +334,6 @@ def display_analysis(result):
 
     st.write(result)
 
-
 # ==========================================
 # SIDEBAR NAVIGATION
 # ==========================================
@@ -322,24 +346,28 @@ with st.sidebar:
 
     st.divider()
 
+    pages = [
+        "Patient Health Profile",
+        "Medical Report Analysis",
+        "AI Explanation",
+        "About MediLens"
+    ]
+
     page = st.radio(
         "Navigation",
-        [
-            "Patient Health Profile",
-            "Medical Report Analysis",
-            "AI Explanation",
-            "About MediLens"
-        ],
-        index=0
+        pages,
+        key="selected_page"
     )
 
     st.divider()
 
     st.caption("Your Health. Your Understanding.")
 
-    if st.button("Logout", use_container_width=True):
+    if st.button(
+        "Logout",
+        use_container_width=True
+    ):
         logout_user(supabase_client)
-
 
 # ==========================================
 # PATIENT HEALTH PROFILE
@@ -347,11 +375,26 @@ with st.sidebar:
 
 if page == "Patient Health Profile":
 
+    st.title("🩺 Patient Health Profile")
+
+    st.write(
+        "Manage your personal health information "
+        "and medical details."
+    )
+
+    if st.button(
+        "Go to Medical Report Analysis ➜",
+        use_container_width=True,
+        on_click=navigate_to_analysis
+    ):
+        pass
+
+    st.divider()
+
     render_health_profile(
         supabase_client,
         user_id
     )
-
 
 # ==========================================
 # MEDICAL REPORT ANALYSIS
@@ -362,21 +405,30 @@ elif page == "Medical Report Analysis":
     st.title("📄 Medical Report Analysis")
 
     st.write(
-        "Upload your medical report to extract and analyze "
-        "laboratory information."
+        "Upload your medical report to extract and "
+        "analyze laboratory information."
+    )
+
+    st.info(
+        "Maximum upload size: 20 MB per file. "
+        "Supported formats: PDF, JPG, JPEG, PNG and BMP."
     )
 
     uploaded_file = st.file_uploader(
         "Upload your medical report",
-        type=["pdf", "png", "jpg", "jpeg", "bmp"],
-        help="Maximum file size: 20 MB"
+        type=ALLOWED_FILE_TYPES,
+        help="Maximum file size: 20 MB",
+        key="medical_report_uploader"
     )
 
     if uploaded_file is not None:
 
-        if uploaded_file.size > 20 * 1024 * 1024:
+        if uploaded_file.size > MAX_FILE_SIZE:
 
-            st.error("File size exceeds the 20 MB limit.")
+            st.error(
+                "File size exceeds 20 MB. "
+                "Please upload a smaller report."
+            )
 
         else:
 
@@ -384,21 +436,49 @@ elif page == "Medical Report Analysis":
                 f"Uploaded successfully: {uploaded_file.name}"
             )
 
-            if st.button("Extract Report Text"):
+            st.caption(
+                f"File size: "
+                f"{uploaded_file.size / (1024 * 1024):.2f} MB"
+            )
+
+            if st.button(
+                "Extract Report Text",
+                use_container_width=True
+            ):
 
                 try:
 
-                    with st.spinner("Extracting report text..."):
+                    with st.spinner(
+                        "Extracting medical report text..."
+                    ):
 
                         uploaded_file.seek(0)
 
-                        if uploaded_file.type == "application/pdf":
+                        file_extension = (
+                            uploaded_file.name
+                            .lower()
+                            .rsplit(".", 1)[-1]
+                        )
+
+                        if file_extension == "pdf":
 
                             extracted_text = extract_text_from_pdf(
                                 uploaded_file
                             )
 
-                        elif extract_text_from_image is not None:
+                        elif file_extension in [
+                            "jpg",
+                            "jpeg",
+                            "png",
+                            "bmp"
+                        ]:
+
+                            if extract_text_from_image is None:
+
+                                raise ImportError(
+                                    "Image OCR module is unavailable. "
+                                    "Check modules/ocr_service.py."
+                                )
 
                             extracted_text = extract_text_from_image(
                                 uploaded_file
@@ -406,13 +486,14 @@ elif page == "Medical Report Analysis":
 
                         else:
 
-                            raise ImportError(
-                                "Image OCR module is not available."
+                            raise ValueError(
+                                "Unsupported file format."
                             )
 
-                        if not extracted_text or not str(
-                            extracted_text
-                        ).strip():
+                        if (
+                            not extracted_text
+                            or not str(extracted_text).strip()
+                        ):
 
                             st.warning(
                                 "No readable text was found. "
@@ -438,11 +519,15 @@ elif page == "Medical Report Analysis":
                         f"Extraction error: {error}"
                     )
 
+    # ======================================
+    # EXTRACTED REPORT TEXT
+    # ======================================
+
     if st.session_state.extracted_text:
 
         st.divider()
 
-        st.subheader("Extracted Report Text")
+        st.subheader("📋 Extracted Report Text")
 
         st.text_area(
             "Report content",
@@ -451,11 +536,16 @@ elif page == "Medical Report Analysis":
             disabled=True
         )
 
-        if st.button("Analyze Medical Report"):
+        if st.button(
+            "Analyze Medical Report",
+            use_container_width=True
+        ):
 
             try:
 
-                with st.spinner("Analyzing medical report..."):
+                with st.spinner(
+                    "Analyzing medical report..."
+                ):
 
                     result = analyze_report(
                         st.session_state.extracted_text
@@ -474,29 +564,36 @@ elif page == "Medical Report Analysis":
                     f"Analysis error: {error}"
                 )
 
+    # ======================================
+    # ANALYSIS RESULTS
+    # ======================================
+
     if st.session_state.analysis_result is not None:
 
         st.divider()
 
-        st.subheader("Analysis Results")
+        st.subheader("📊 Analysis Results")
 
         result = st.session_state.analysis_result
 
         col1, col2, col3 = st.columns(3)
 
         with col1:
+
             st.metric(
                 "Below Range",
                 get_result_count(result, "Below")
             )
 
         with col2:
+
             st.metric(
                 "Within Range",
                 get_result_count(result, "Within")
             )
 
         with col3:
+
             st.metric(
                 "Above Range",
                 get_result_count(result, "Above")
@@ -508,6 +605,11 @@ elif page == "Medical Report Analysis":
 
         display_analysis(result)
 
+        st.caption(
+            "Reference ranges can vary by laboratory, "
+            "age and other individual factors. "
+            "Consult a healthcare professional."
+        )
 
 # ==========================================
 # AI EXPLANATION
@@ -518,8 +620,8 @@ elif page == "AI Explanation":
     st.title("✨ AI Medical Report Explanation")
 
     st.write(
-        "Get an easy-to-understand educational explanation "
-        "of your medical report."
+        "Get an easy-to-understand educational "
+        "explanation of your medical report."
     )
 
     if not st.session_state.extracted_text:
@@ -531,7 +633,9 @@ elif page == "AI Explanation":
 
     else:
 
-        st.success("Medical report text is available.")
+        st.success(
+            "Medical report text is available."
+        )
 
         if ai_explain_report is None:
 
@@ -542,7 +646,10 @@ elif page == "AI Explanation":
 
         else:
 
-            if st.button("Generate AI Explanation"):
+            if st.button(
+                "Generate AI Explanation",
+                use_container_width=True
+            ):
 
                 try:
 
@@ -554,7 +661,9 @@ elif page == "AI Explanation":
                             st.session_state.extracted_text
                         )
 
-                        st.session_state.ai_explanation = explanation
+                        st.session_state.ai_explanation = (
+                            explanation
+                        )
 
                 except Exception as error:
 
@@ -573,10 +682,10 @@ elif page == "AI Explanation":
                 )
 
                 st.info(
-                    "This explanation is for educational purposes "
-                    "and is not a medical diagnosis."
+                    "This explanation is for educational "
+                    "purposes and is not a medical diagnosis. "
+                    "Please consult a qualified healthcare professional."
                 )
-
 
 # ==========================================
 # ABOUT MEDILENS
@@ -593,15 +702,25 @@ elif page == "About MediLens":
 
     ### Main Features
 
-    - Guest authentication using Supabase
     - Patient health profile
-    - Editable health information
     - Medical report upload
     - PDF text extraction
     - Image-based report extraction using OCR
     - Laboratory result analysis
     - Below, Within and Above reference range identification
     - AI-based educational report explanation
+
+    ### Supported Upload Formats
+
+    - PDF
+    - JPG
+    - JPEG
+    - PNG
+    - BMP
+
+    ### Maximum Upload Size
+
+    20 MB per file.
 
     ### Technology Stack
 
@@ -624,7 +743,6 @@ elif page == "About MediLens":
         "MediLens is an educational assistant, "
         "not a replacement for healthcare professionals."
     )
-
 
 # ==========================================
 # FOOTER
