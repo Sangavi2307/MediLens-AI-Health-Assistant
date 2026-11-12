@@ -1,6 +1,10 @@
 
 import streamlit as st
 from supabase import create_client
+from streamlit_cookies_manager import EncryptedCookieManager
+
+
+COOKIE_NAME = "medilens_guest_refresh_token"
 
 
 def initialize_auth_session():
@@ -14,6 +18,27 @@ def initialize_auth_session():
     for key, value in defaults.items():
         if key not in st.session_state:
             st.session_state[key] = value
+
+
+def get_cookies():
+    try:
+        password = st.secrets["COOKIE_PASSWORD"]
+
+        cookies = EncryptedCookieManager(
+            prefix="medilens/",
+            password=password
+        )
+
+        if not cookies.ready():
+            st.info("Restoring your secure MediLens session...")
+            st.stop()
+
+        return cookies
+
+    except Exception as error:
+        st.error("Unable to initialize secure session storage.")
+        st.caption(f"{type(error).__name__}: {error}")
+        return None
 
 
 def get_supabase_client():
@@ -34,34 +59,52 @@ def get_supabase_client():
     return st.session_state["supabase_client"]
 
 
-def restore_auth_session(client):
+def restore_auth_session(client, cookies):
     try:
-        session = client.auth.get_session()
+        refresh_token = cookies.get(COOKIE_NAME)
 
-        if session and session.user:
-            st.session_state["auth_user_id"] = session.user.id
-            st.session_state["auth_user_email"] = session.user.email
-            st.session_state["is_authenticated"] = True
-            return True
+        if not refresh_token:
+            return False
+
+        response = client.auth.refresh_session(refresh_token)
+
+        if not response or not response.session:
+            return False
+
+        session = response.session
+
+        cookies[COOKIE_NAME] = session.refresh_token
+        cookies.save()
+
+        st.session_state["auth_user_id"] = session.user.id
+        st.session_state["auth_user_email"] = session.user.email
+        st.session_state["is_authenticated"] = True
+
+        return True
 
     except Exception:
-        pass
-
-    return False
+        return False
 
 
-def guest_sign_in(client):
+def guest_sign_in(client, cookies):
     try:
-        if restore_auth_session(client):
-            st.success("Your existing guest session has been restored.")
+        # First try restoring the previous guest account.
+        if restore_auth_session(client, cookies):
+            st.success("Your previous guest account was restored.")
             st.rerun()
             return True
 
+        # Create a guest only when no previous session exists.
         response = client.auth.sign_in_anonymously()
 
-        if not response.user:
+        if not response.user or not response.session:
             st.error("Guest sign-in was unsuccessful.")
             return False
+
+        session = response.session
+
+        cookies[COOKIE_NAME] = session.refresh_token
+        cookies.save()
 
         st.session_state["auth_user_id"] = response.user.id
         st.session_state["auth_user_email"] = None
@@ -69,6 +112,7 @@ def guest_sign_in(client):
 
         st.success("Guest access activated successfully!")
         st.rerun()
+
         return True
 
     except Exception as error:
@@ -77,13 +121,21 @@ def guest_sign_in(client):
         return False
 
 
-def logout_user(client):
+def logout_user(client, cookies=None):
     try:
         client.auth.sign_out()
 
     except Exception as error:
         st.warning("Unable to complete sign-out.")
         st.caption(str(error))
+
+    if cookies is not None:
+        try:
+            if COOKIE_NAME in cookies:
+                del cookies[COOKIE_NAME]
+                cookies.save()
+        except Exception:
+            pass
 
     st.session_state["auth_user_id"] = None
     st.session_state["auth_user_email"] = None
@@ -104,18 +156,25 @@ def logout_user(client):
 def render_authentication():
     initialize_auth_session()
 
+    cookies = get_cookies()
+
+    if cookies is None:
+        return False
+
     client = get_supabase_client()
 
     if client is None:
         return False
 
+    # Existing authenticated session in Streamlit.
     if (
         st.session_state.get("auth_user_id")
         and st.session_state.get("is_authenticated")
     ):
         return True
 
-    if restore_auth_session(client):
+    # Restore the same guest account after reopening.
+    if restore_auth_session(client, cookies):
         return True
 
     st.title("🩺 Welcome to MediLens")
@@ -124,9 +183,9 @@ def render_authentication():
     st.info("Use MediLens without creating an email account.")
 
     st.subheader("Guest Access")
-    st.write("Continue securely with a temporary guest session.")
+    st.write("Continue securely with a guest session.")
 
     if st.button("Continue as Guest", use_container_width=True):
-        guest_sign_in(client)
+        guest_sign_in(client, cookies)
 
     return False
