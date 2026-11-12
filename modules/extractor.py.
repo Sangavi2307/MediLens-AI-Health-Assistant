@@ -1,0 +1,71 @@
+
+import pymupdf
+
+
+# ==========================================
+# PDF TEXT EXTRACTOR
+# ==========================================
+
+def extract_text_from_pdf(uploaded_file):
+
+    try:
+
+        # Read uploaded PDF bytes
+        uploaded_file.seek(0)
+        pdf_bytes = uploaded_file.read()
+
+        if not pdf_bytes:
+            raise ValueError("The uploaded PDF is empty.")
+
+        # Open PDF from memory
+        pdf_document = pymupdf.open(
+            stream=pdf_bytes,
+            filetype="pdf"
+        )
+
+        # Check whether PDF is encrypted
+        if pdf_document.is_encrypted:
+            raise ValueError(
+                "This PDF is password protected. "
+                "Please upload an unlocked PDF."
+            )
+
+        extracted_pages = []
+
+        # Extract text from every page
+        for page_number, page in enumerate(
+            pdf_document,
+            start=1
+        ):
+
+            page_text = page.get_text("text")
+
+            if page_text and page_text.strip():
+
+                extracted_pages.append(
+                    f"\n--- Page {page_number} ---\n"
+                    + page_text.strip()
+                )
+
+        pdf_document.close()
+
+        # Combine all extracted pages
+        extracted_text = "\n".join(extracted_pages)
+
+        if not extracted_text.strip():
+
+            return (
+                "NO_TEXT_FOUND: This PDF may be scanned "
+                "or image-based. OCR processing is required."
+            )
+
+        return extracted_text
+
+    except ValueError:
+        raise
+
+    except Exception as error:
+
+        raise RuntimeError(
+            f"PDF extraction failed: {error}"
+        )
