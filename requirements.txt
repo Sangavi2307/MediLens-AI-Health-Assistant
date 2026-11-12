@@ -1,8 +1,11 @@
-supabase
+
 streamlit
 pandas
 pymupdf
-pillow
+Pillow
 pytesseract
+supabase
+openai
+
 
 
