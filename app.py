@@ -57,11 +57,7 @@ except ImportError:
 MAX_FILE_SIZE = 20 * 1024 * 1024
 
 ALLOWED_FILE_TYPES = [
-    "pdf",
-    "png",
-    "jpg",
-    "jpeg",
-    "bmp"
+    "pdf", "png", "jpg", "jpeg", "bmp"
 ]
 
 # ==========================================
@@ -200,7 +196,8 @@ defaults = {
     "extracted_text": "",
     "analysis_result": None,
     "ai_explanation": None,
-    "selected_page": "Patient Health Profile"
+    "selected_page": "Patient Health Profile",
+    "is_guest": False
 }
 
 for key, value in defaults.items():
@@ -208,15 +205,48 @@ for key, value in defaults.items():
         st.session_state[key] = value
 
 # ==========================================
-# AUTHENTICATION
+# AUTHENTICATION AND GUEST MODE
 # ==========================================
 
 initialize_auth_session()
 
-authenticated = render_authentication()
+is_guest = st.session_state.get("is_guest", False)
 
-if not authenticated:
-    st.stop()
+if is_guest:
+
+    # Guest users can enter without Supabase login.
+    authenticated = True
+
+else:
+
+    # Existing Login and Create Account screen.
+    authenticated = render_authentication()
+
+    if not authenticated:
+
+        st.divider()
+
+        st.markdown("### Continue without an account")
+
+        st.write(
+            "You can use Medical Report Analysis and "
+            "AI Explanation without creating an account."
+        )
+
+        if st.button(
+            "Continue as Guest",
+            use_container_width=True
+        ):
+
+            st.session_state["is_guest"] = True
+
+            st.session_state["selected_page"] = (
+                "Medical Report Analysis"
+            )
+
+            st.rerun()
+
+        st.stop()
 
 # ==========================================
 # SUPABASE USER DETAILS
@@ -226,18 +256,24 @@ supabase_client = get_supabase_client()
 
 user_id = st.session_state.get("auth_user_id")
 
-if supabase_client is None or not user_id:
-    st.error(
-        "Your session is unavailable. "
-        "Please log in or start your guest session again."
-    )
-    st.stop()
+# Guest users do not need a Supabase user ID.
+if not is_guest:
+
+    if supabase_client is None or not user_id:
+
+        st.error(
+            "Your session is unavailable. "
+            "Please log in again."
+        )
+
+        st.stop()
 
 # ==========================================
 # NAVIGATION CALLBACK
 # ==========================================
 
 def navigate_to_analysis():
+
     st.session_state["selected_page"] = (
         "Medical Report Analysis"
     )
@@ -251,6 +287,7 @@ def get_result_count(result, status):
     if isinstance(result, pd.DataFrame):
 
         if "Status" in result.columns:
+
             return int(
                 result["Status"].astype(str)
                 .str.lower()
@@ -263,6 +300,7 @@ def get_result_count(result, status):
         for key in ("results", "tests", "lab_results"):
 
             if key in result:
+
                 return get_result_count(
                     result[key],
                     status
@@ -346,12 +384,34 @@ with st.sidebar:
 
     st.divider()
 
-    pages = [
-        "Patient Health Profile",
-        "Medical Report Analysis",
-        "AI Explanation",
-        "About MediLens"
-    ]
+    # Hide personal profile from guest users.
+    if is_guest:
+
+        pages = [
+            "Medical Report Analysis",
+            "AI Explanation",
+            "About MediLens"
+        ]
+
+        st.info("You are using MediLens as a Guest.")
+
+    else:
+
+        pages = [
+            "Patient Health Profile",
+            "Medical Report Analysis",
+            "AI Explanation",
+            "About MediLens"
+        ]
+
+    # Ensure selected page is valid.
+    if st.session_state["selected_page"] not in pages:
+
+        st.session_state["selected_page"] = (
+            "Medical Report Analysis"
+            if is_guest
+            else "Patient Health Profile"
+        )
 
     page = st.radio(
         "Navigation",
@@ -363,11 +423,35 @@ with st.sidebar:
 
     st.caption("Your Health. Your Understanding.")
 
-    if st.button(
-        "Logout",
-        use_container_width=True
-    ):
-        logout_user(supabase_client)
+    # Guest logout and normal logout are separate.
+    if is_guest:
+
+        if st.button(
+            "Exit Guest Mode",
+            use_container_width=True
+        ):
+
+            st.session_state["is_guest"] = False
+
+            st.session_state["extracted_text"] = ""
+            st.session_state["analysis_result"] = None
+            st.session_state["ai_explanation"] = None
+
+            st.session_state["selected_page"] = (
+                "Patient Health Profile"
+            )
+
+            st.rerun()
+
+    else:
+
+        if st.button(
+            "Logout",
+            use_container_width=True
+        ):
+
+            logout_user(supabase_client)
+            st.rerun()
 
 # ==========================================
 # PATIENT HEALTH PROFILE
@@ -375,26 +459,33 @@ with st.sidebar:
 
 if page == "Patient Health Profile":
 
-    st.title("🩺 Patient Health Profile")
+    if is_guest:
 
-    st.write(
-        "Manage your personal health information "
-        "and medical details."
-    )
+        st.warning(
+            "Please log in to access your Patient Health Profile."
+        )
 
-    if st.button(
-        "Go to Medical Report Analysis ➜",
-        use_container_width=True,
-        on_click=navigate_to_analysis
-    ):
-        pass
+    else:
 
-    st.divider()
+        st.title("🩺 Patient Health Profile")
 
-    render_health_profile(
-        supabase_client,
-        user_id
-    )
+        st.write(
+            "Manage your personal health information "
+            "and medical details."
+        )
+
+        st.button(
+            "Go to Medical Report Analysis ➜",
+            use_container_width=True,
+            on_click=navigate_to_analysis
+        )
+
+        st.divider()
+
+        render_health_profile(
+            supabase_client,
+            user_id
+        )
 
 # ==========================================
 # MEDICAL REPORT ANALYSIS
@@ -408,6 +499,14 @@ elif page == "Medical Report Analysis":
         "Upload your medical report to extract and "
         "analyze laboratory information."
     )
+
+    if is_guest:
+
+        st.info(
+            "Guest Mode: You can analyze a report without "
+            "creating an account. Your report is not saved "
+            "to a personal Health Profile."
+        )
 
     st.info(
         "Maximum upload size: 20 MB per file. "
@@ -467,10 +566,7 @@ elif page == "Medical Report Analysis":
                             )
 
                         elif file_extension in [
-                            "jpg",
-                            "jpeg",
-                            "png",
-                            "bmp"
+                            "jpg", "jpeg", "png", "bmp"
                         ]:
 
                             if extract_text_from_image is None:
@@ -702,6 +798,8 @@ elif page == "About MediLens":
 
     ### Main Features
 
+    - Login and Create Account
+    - Guest Mode
     - Patient health profile
     - Medical report upload
     - PDF text extraction
