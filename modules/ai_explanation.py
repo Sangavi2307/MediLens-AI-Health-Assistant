@@ -1,27 +1,26 @@
 
 import streamlit as st
-from openai import OpenAI
+from google import genai
+from google.genai import types
 
 
 # ==========================================
-# OPENAI CLIENT
+# GEMINI AI CLIENT
 # ==========================================
 
-def get_openai_client():
+def get_gemini_client():
 
     try:
-
-        api_key = st.secrets["OPENAI_API_KEY"]
+        api_key = st.secrets.get("GEMINI_API_KEY", "")
 
         if not api_key:
-            raise ValueError("OpenAI API key is empty.")
+            raise ValueError("Gemini API key is missing.")
 
-        return OpenAI(api_key=api_key)
+        return genai.Client(api_key=api_key)
 
     except Exception as error:
-
         raise RuntimeError(
-            "OpenAI API key is missing or incorrect. "
+            "Unable to connect to Gemini. "
             "Please check Streamlit Secrets."
         ) from error
 
@@ -30,72 +29,77 @@ def get_openai_client():
 # AI MEDICAL REPORT EXPLANATION
 # ==========================================
 
-def ai_explain_report(report_text):
+def ai_explain_report(report_text, language="English"):
 
     if not report_text or not str(report_text).strip():
+        raise ValueError("Medical report text is empty.")
 
-        raise ValueError(
-            "Medical report text is empty."
-        )
-
-    client = get_openai_client()
+    client = get_gemini_client()
 
     instructions = """
-You are MediLens, an educational medical report
-explanation assistant.
+You are MediLens, an AI medical report explanation assistant.
 
-Explain the following medical report in simple English.
+Your task is to explain medical laboratory reports
+using the actual information supplied in the report.
 
-Your responsibilities:
+REQUIREMENTS:
 
-1. Summarize the medical report.
-2. Explain each available laboratory test.
-3. Explain values marked Below, Within or Above.
-4. Explain medical terminology in simple language.
-5. Explain the meaning of the supplied reference ranges.
-6. Identify results that should be discussed with a doctor.
-7. Use clear headings and short paragraphs.
+1. Summarize the complete medical report.
+2. Explain every laboratory test found in the report.
+3. Explain the purpose of each test.
+4. Explain the patient's actual result.
+5. Explain the supplied reference range and unit.
+6. Explain whether a result is low, normal or high
+   when the report provides enough information.
+7. Explain medical terminology in simple language.
+8. Explain possible general reasons for abnormal results,
+   without claiming that they are the patient's diagnosis.
+9. Mention results that should be discussed with a doctor.
+10. Use headings, tables and simple explanations.
 
-IMPORTANT SAFETY RULES:
+IMPORTANT RULES:
 
 - Do not diagnose diseases.
-- Do not prescribe medicines or treatments.
+- Do not prescribe medicines.
 - Do not recommend changing medication.
-- Do not invent missing test values.
-- Do not invent reference ranges.
-- Do not claim normal results guarantee good health.
+- Never invent test results or reference ranges.
+- Do not assume a missing reference range.
+- If a test is unfamiliar, clearly say so.
+- Use the reference ranges printed in the report.
+- Explain that reference ranges may vary between laboratories.
 - Do not create unnecessary fear.
-- Explain that laboratory reference ranges may vary.
-- Recommend consulting a qualified healthcare professional.
-- Clearly state that this is educational information,
-  not a medical diagnosis.
+- This is educational information, not a medical diagnosis.
+
+Explain the report in the requested language.
+"""
+
+    prompt = f"""
+Explain the following medical report in {language}.
+
+MEDICAL REPORT:
+
+{str(report_text)}
 """
 
     try:
-
-        response = client.responses.create(
-            model="gpt-5.5",
-            instructions=instructions,
-            input=(
-                "Explain this medical report in simple language:\n\n"
-                + str(report_text)
-            ),
-            store=False
+        response = client.models.generate_content(
+            model="gemini-2.5-flash",
+            contents=prompt,
+            config=types.GenerateContentConfig(
+                system_instruction=instructions,
+                temperature=0.3,
+                max_output_tokens=5000
+            )
         )
 
-        explanation = response.output_text
+        explanation = response.text
 
-        if not explanation:
-
-            raise RuntimeError(
-                "AI returned an empty explanation."
-            )
+        if not explanation or not explanation.strip():
+            raise RuntimeError("Gemini returned an empty explanation.")
 
         return explanation
 
     except Exception as error:
-
         raise RuntimeError(
-            f"AI explanation failed: {error}"
+            f"Gemini AI explanation failed: {error}"
         ) from error
-        
